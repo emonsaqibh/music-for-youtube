@@ -11,6 +11,7 @@ final class ImageCache {
     private let memory = NSCache<NSURL, NSImage>()
     private let colors = NSCache<NSURL, NSColor>()
     private let ambients = NSCache<NSURL, NSImage>()
+    private var palettes: [URL: [NSColor]] = [:]
     private var inflight: [URL: Task<NSImage?, Never>] = [:]
     private let session: URLSession
 
@@ -105,6 +106,89 @@ extension ImageCache {
         let result = NSImage(cgImage: rendered, size: NSSize(width: side, height: side))
         ambients.setObject(result, forKey: url as NSURL)
         return result
+    }
+}
+
+extension ImageCache {
+    /// The artwork's main colours, most prominent first, tuned to sit behind white text —
+    /// what Music.app's full-screen player builds its flowing background from.
+    ///
+    /// The image is reduced to 32×32 and its pixels bucketed by colour; buckets are ranked
+    /// by size, nudged towards colourful ones so a small bright accent can beat a large
+    /// dull area, and near-duplicates are skipped so the palette has range.
+    func palette(_ url: URL) async -> [NSColor]? {
+        if let hit = palettes[url] { return hit }
+        guard let image = await image(url),
+              let cg = image.cgImage(forProposedRect: nil, context: nil, hints: nil) else { return nil }
+
+        let side = 32
+        var pixels = [UInt8](repeating: 0, count: side * side * 4)
+        guard let context = CGContext(data: &pixels, width: side, height: side, bitsPerComponent: 8,
+                                      bytesPerRow: side * 4, space: CGColorSpace(name: CGColorSpace.sRGB)!,
+                                      bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return nil }
+        context.interpolationQuality = .medium
+        context.draw(cg, in: CGRect(x: 0, y: 0, width: side, height: side))
+
+        struct Bucket { var count = 0; var r = 0.0, g = 0.0, b = 0.0 }
+        var buckets: [Int: Bucket] = [:]
+        for i in stride(from: 0, to: pixels.count, by: 4) {
+            let r = Int(pixels[i]), g = Int(pixels[i + 1]), b = Int(pixels[i + 2])
+            let key = (r >> 5) << 6 | (g >> 5) << 3 | (b >> 5)
+            buckets[key, default: Bucket()].count += 1
+            buckets[key]!.r += Double(r) / 255
+            buckets[key]!.g += Double(g) / 255
+            buckets[key]!.b += Double(b) / 255
+        }
+
+        let ranked = buckets.values.map { bucket -> (color: NSColor, score: Double) in
+            let n = Double(bucket.count)
+            let color = NSColor(srgbRed: bucket.r / n, green: bucket.g / n, blue: bucket.b / n, alpha: 1)
+            return (color, n * (0.35 + color.saturationComponent))
+        }
+        .sorted { $0.score > $1.score }
+
+        var picked: [NSColor] = []
+        for candidate in ranked where picked.count < 5 {
+            let distinct = picked.allSatisfy { Self.distance($0, candidate.color) > 0.2 }
+            if distinct { picked.append(candidate.color) }
+        }
+        guard let first = picked.first else { return nil }
+        // Single-colour artwork: vary the one colour rather than showing a flat field.
+        while picked.count < 3 {
+            let shift = CGFloat(picked.count) * 0.04
+            picked.append(NSColor(hue: (first.hueComponent + shift).truncatingRemainder(dividingBy: 1),
+                                  saturation: first.saturationComponent,
+                                  brightness: first.brightnessComponent * (picked.count == 1 ? 0.65 : 1.2),
+                                  alpha: 1))
+        }
+
+        let tuned = picked.map(Self.backgroundTone)
+        palettes[url] = tuned
+        if palettes.count > 200 { palettes.removeAll() }
+        return tuned
+    }
+
+    private static func distance(_ a: NSColor, _ b: NSColor) -> Double {
+        let dr = a.redComponent - b.redComponent
+        let dg = a.greenComponent - b.greenComponent
+        let db = a.blueComponent - b.blueComponent
+        return Double((dr * dr + dg * dg + db * db).squareRoot())
+    }
+
+    /// Richer and never too bright: colours stay recognisably the artwork's, but white
+    /// lyrics over them stay readable. Only real colours are enriched — a faintly tinted
+    /// grey (silver, cream) stays near-grey rather than turning into a colour the artwork
+    /// doesn't have.
+    private static func backgroundTone(_ color: NSColor) -> NSColor {
+        let s = color.saturationComponent, b = color.brightnessComponent
+        if s < 0.25 {
+            return NSColor(hue: color.hueComponent, saturation: s * 0.8,
+                           brightness: min(max(b, 0.16), 0.46), alpha: 1)
+        }
+        return NSColor(hue: color.hueComponent,
+                       saturation: min(0.92, s * 1.15),
+                       brightness: min(max(b, 0.3), 0.72),
+                       alpha: 1)
     }
 }
 

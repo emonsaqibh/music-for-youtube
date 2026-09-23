@@ -39,10 +39,11 @@ final class AppSettings {
     }
 
     enum FullScreenBackground: String, CaseIterable, Identifiable {
-        case animated, still, solid
+        case colors, animated, still, solid
         var id: String { rawValue }
         var label: String {
             switch self {
+            case .colors: "Artwork colours"
             case .animated: "Moving artwork"
             case .still: "Still artwork"
             case .solid: "Solid colour"
@@ -109,7 +110,15 @@ final class AppSettings {
         let d = UserDefaults.standard
         colorScheme = ColorSchemeChoice(rawValue: d.string(forKey: Keys.colorScheme) ?? "") ?? .system
         accent = AccentChoice(rawValue: d.string(forKey: Keys.accent) ?? "") ?? .red
-        fullScreenBackground = FullScreenBackground(rawValue: d.string(forKey: Keys.fullScreenBackground) ?? "") ?? .animated
+        var background = FullScreenBackground(rawValue: d.string(forKey: Keys.fullScreenBackground) ?? "") ?? .colors
+        // Artwork colours became the default after some people had already saved another
+        // style; move everyone onto it once. Choices made after this are kept.
+        if !d.bool(forKey: Keys.artworkColorsMigrated) {
+            d.set(true, forKey: Keys.artworkColorsMigrated)
+            background = .colors
+            d.set(background.rawValue, forKey: Keys.fullScreenBackground)
+        }
+        fullScreenBackground = background
         lyricsSize = LyricsSize(rawValue: d.string(forKey: Keys.lyricsSize) ?? "") ?? .medium
         fullScreenShowsLyrics = d.object(forKey: Keys.fullScreenShowsLyrics) as? Bool ?? true
         showsPlaylistsInSidebar = d.object(forKey: Keys.showsPlaylistsInSidebar) as? Bool ?? true
@@ -136,7 +145,7 @@ final class AppSettings {
     func resetToDefaults() {
         colorScheme = .system
         accent = .red
-        fullScreenBackground = .animated
+        fullScreenBackground = .colors
         lyricsSize = .medium
         fullScreenShowsLyrics = true
         showsPlaylistsInSidebar = true
@@ -150,6 +159,7 @@ final class AppSettings {
         static let colorScheme = "settings.colorScheme"
         static let accent = "settings.accent"
         static let fullScreenBackground = "settings.fullScreenBackground"
+        static let artworkColorsMigrated = "settings.fullScreenBackground.artworkColorsMigrated"
         static let lyricsSize = "settings.lyricsSize"
         static let fullScreenShowsLyrics = "settings.fullScreenShowsLyrics"
         static let showsPlaylistsInSidebar = "settings.showsPlaylistsInSidebar"

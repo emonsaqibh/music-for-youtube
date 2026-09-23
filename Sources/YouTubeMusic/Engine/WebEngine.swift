@@ -164,6 +164,7 @@ final class WebEngine: NSObject {
     /// the *signed-in* account, so it stays on the real store.
     static var usesEphemeralSession: Bool {
         SelfTest.isRequested || PlaybackProbe.isRequested || DemoMode.isRequested
+            || CommandLine.arguments.contains("--install-update")
     }
 
     private func makeWebView(for profile: Session.Profile) -> WKWebView {

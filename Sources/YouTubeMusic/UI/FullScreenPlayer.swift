@@ -253,6 +253,7 @@ private struct AmbientBackground: View {
     var style: AppSettings.FullScreenBackground = .animated
 
     @State private var image: NSImage?
+    @State private var palette: [Color] = []
     @State private var drifting = false
 
     var body: some View {
@@ -261,7 +262,12 @@ private struct AmbientBackground: View {
             ZStack {
                 fallback
 
-                if let image, style != .solid {
+                if style == .colors, palette.count >= 3 {
+                    ArtworkColorsBackground(colors: palette)
+                        // A new song's colours cross-fade in over the old ones.
+                        .id(palette)
+                        .transition(.opacity)
+                } else if let image, style != .solid, style != .colors {
                     ZStack {
                         Image(nsImage: image)
                             .resizable()
@@ -284,8 +290,11 @@ private struct AmbientBackground: View {
                     .transition(.opacity)
                 }
 
-                // Keeps white type legible over bright artwork.
-                LinearGradient(colors: [.black.opacity(0.28), .black.opacity(0.42)],
+                // Keeps white type legible over bright artwork. The colour field is already
+                // toned down, so it needs less.
+                LinearGradient(colors: style == .colors
+                                   ? [.black.opacity(0.12), .black.opacity(0.3)]
+                                   : [.black.opacity(0.28), .black.opacity(0.42)],
                                startPoint: .top, endPoint: .bottom)
             }
             .frame(width: geo.size.width, height: geo.size.height)
@@ -294,6 +303,9 @@ private struct AmbientBackground: View {
         .ignoresSafeArea()
         .task(id: url) {
             guard let url else { return }
+            if let colors = await ImageCache.shared.palette(url) {
+                withAnimation(.easeInOut(duration: 1.2)) { palette = colors.map { Color(nsColor: $0) } }
+            }
             let next = await ImageCache.shared.ambient(url)
             withAnimation(.easeInOut(duration: 0.8)) { image = next }
         }
@@ -310,5 +322,46 @@ private struct AmbientBackground: View {
             return
         }
         withAnimation(.linear(duration: 90).repeatForever(autoreverses: false)) { drifting = true }
+    }
+}
+
+/// Music.app's full-screen background: the artwork's own colours flowing slowly into one
+/// another. A 3×3 mesh gradient whose inner points drift on out-of-step sine waves (30–60s
+/// periods), so the motion never visibly repeats. Rendered by the GPU; with Reduce Motion
+/// on, it holds still.
+private struct ArtworkColorsBackground: View {
+    let colors: [Color]
+
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    var body: some View {
+        TimelineView(.animation(minimumInterval: 1 / 30, paused: reduceMotion)) { context in
+            MeshGradient(width: 3, height: 3,
+                         points: points(at: context.date.timeIntervalSinceReferenceDate),
+                         colors: meshColors,
+                         smoothsColors: true)
+        }
+    }
+
+    /// Corners stay put, edge points slide along their edge, the centre wanders freely.
+    private func points(at t: Double) -> [SIMD2<Float>] {
+        func wave(_ period: Double, _ phase: Double, _ amplitude: Double) -> Float {
+            Float(0.5 + sin(t * 2 * .pi / period + phase) * amplitude)
+        }
+        return [
+            [0, 0], [wave(47, 0.0, 0.22), 0], [1, 0],
+            [0, wave(53, 1.3, 0.2)], [wave(37, 2.1, 0.24), wave(43, 0.7, 0.24)], [1, wave(59, 2.9, 0.2)],
+            [0, 1], [wave(41, 4.2, 0.22), 1], [1, 1],
+        ]
+    }
+
+    /// The most prominent colour takes the centre and one corner; the rest spread around
+    /// so neighbouring patches differ.
+    private var meshColors: [Color] {
+        let c = colors
+        func at(_ i: Int) -> Color { c[i % c.count] }
+        return [at(1), at(2), at(3),
+                at(4), at(0), at(1),
+                at(0), at(3), at(2)]
     }
 }

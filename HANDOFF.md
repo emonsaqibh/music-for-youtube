@@ -253,6 +253,17 @@ browsers aren't read yet (Keychain-encrypted SQLite) and fall back to the in-app
 `AuthWindow`, which also stays reachable from the window. Dev builds are ad-hoc signed, so
 Full Disk Access must be re-granted after each rebuild (only needed while signing in).
 
+**Full-screen "Artwork colours" background** (now the default style) — Music.app's
+flowing colour field. `ImageCache.palette(_:)` reduces the artwork to 32×32, buckets
+pixels, ranks buckets by size nudged towards saturated ones, skips near-duplicates and
+tunes up to five colours for white text (only genuinely colourful ones are enriched — a
+faint tint like silver stays grey, or it turns into a colour the art doesn't have).
+`ArtworkColorsBackground` draws them as a 3×3 `MeshGradient` whose points drift on
+out-of-step 37–59s sine waves; new songs cross-fade; Reduce Motion freezes it. The style
+is chosen in Settings only (the owner didn't want a switch in the player). A one-time
+migration (`settings.fullScreenBackground.artworkColorsMigrated`) moved previously saved
+styles onto Artwork colours; choices made after it are kept.
+
 ## 4. Next
 
 - Advanced features: library mutation (like / add to playlist), search continuations,
