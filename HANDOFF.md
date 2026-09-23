@@ -50,7 +50,7 @@ kept apart and both can run at once:
 All development and testing uses the **dev** build. A release is frozen: `release.sh`
 builds in release config, saves the app and a `source.tar.gz` snapshot under
 `releases/<version>/`, installs it to `/Applications`, and refuses to reuse a version.
-Current beta: **0.1.0-beta.1** (2026-09-23).
+Current beta: **0.2.0-beta.1** (2026-09-23; first was 0.1.0-beta.1).
 
 ### Launch flags
 
