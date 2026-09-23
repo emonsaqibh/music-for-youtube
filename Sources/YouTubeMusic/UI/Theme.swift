@@ -18,6 +18,7 @@ enum Theme {
     static let shelfGap: CGFloat = 36
 
     static let sidebarWidth: CGFloat = 220
+    static let sidebarMinWidth: CGFloat = 200
 }
 
 extension View {

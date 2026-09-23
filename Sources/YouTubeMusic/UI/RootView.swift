@@ -10,7 +10,8 @@ struct RootView: View {
 
         NavigationSplitView {
             SidebarView()
-                .navigationSplitViewColumnWidth(min: 200, ideal: Theme.sidebarWidth, max: 300)
+                .navigationSplitViewColumnWidth(min: Theme.sidebarMinWidth, ideal: Theme.sidebarWidth, max: 300)
+                .background(SidebarDefaultWidth())
                 .toolbar(removing: .sidebarToggle)
         } detail: {
             NavigationStack(path: $router.path) {
@@ -395,6 +396,36 @@ struct RouteView: View {
             ArtistView(browseId: browseId)
         case .seeAll(let browseId, let params, let title):
             FeedView(title: title, browseId: browseId, params: params)
+        }
+    }
+}
+
+/// With no saved layout (a first launch), `NavigationSplitView` ignores the column's ideal
+/// and minimum widths and opens the sidebar at ~144pt. Once per launch, a sidebar found
+/// narrower than its minimum is moved out to the default; a width the user dragged to is
+/// always at least the minimum, so it's left alone.
+private struct SidebarDefaultWidth: NSViewRepresentable {
+    func makeNSView(context: Context) -> NSView { Probe() }
+    func updateNSView(_ nsView: NSView, context: Context) {}
+
+    private final class Probe: NSView {
+        private var applied = false
+
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            guard window != nil, !applied else { return }
+            DispatchQueue.main.async { [weak self] in self?.widen() }
+        }
+
+        private func widen() {
+            var ancestor = superview
+            while let view = ancestor, !(view is NSSplitView) { ancestor = view.superview }
+            guard let split = ancestor as? NSSplitView, let sidebar = split.arrangedSubviews.first
+            else { return }
+            applied = true
+            if sidebar.frame.width < Theme.sidebarMinWidth {
+                split.setPosition(Theme.sidebarWidth, ofDividerAt: 0)
+            }
         }
     }
 }
