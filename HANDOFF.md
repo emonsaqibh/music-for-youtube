@@ -50,7 +50,7 @@ kept apart and both can run at once:
 Releases are ad-hoc signed, not notarized: a browser-downloaded zip is quarantined and
 Gatekeeper blocks it on macOS 15+ ("Apple could not verify…"). Locally, `release.sh`
 installs directly (no quarantine), which is how this Mac gets betas. `./publish.sh <ver>
-<notes>` tags and creates the private GitHub pre-release.
+<notes>` tags and creates the GitHub release (pre-release for x.y.z-suffix, Latest for x.y.z).
 
 **The repo is public (owner's call, 2026-09-23).** `install.sh` is the curl one-liner in the
 README; it and `Support/Updater.swift` (self-update, off in dev) read this repo's release
@@ -61,7 +61,7 @@ Real fix for Gatekeeper = Developer ID + notarization (paid account, none yet).
 All development and testing uses the **dev** build. A release is frozen: `release.sh`
 builds in release config, saves the app and a `source.tar.gz` snapshot under
 `releases/<version>/`, installs it to `/Applications`, and refuses to reuse a version.
-Current beta: **0.2.0-beta.5** (2026-09-23; update steps, browser sign-in with Chromium hidden, sidebar container). 0.2.0-beta.3 was the first whose in-app updater works.
+Current release: **1.0.0** (2026-09-23) — the first stable build (GitHub Latest). Betas before it: 0.1.0-beta.1 … 0.2.0-beta.5.
 
 ### Launch flags
 
