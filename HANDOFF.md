@@ -268,6 +268,29 @@ Blur: a four-step slider under Background in Settings (only for Artwork colours;
 drawn at ¼ window size, blurred there and scaled up, at 15fps — that took the full-window
 version from ~68% app CPU at the strongest blur down to baseline.
 
+## 3d. Done (session 6, 2026-09-23): performance pass
+
+The owner found the app choppy and slow to respond. Measured against the previous code
+(both optimized builds, `--demo`):
+
+- **JSON off the main thread.** `JSON(parsing:)` uses `JSONSerialization` (~50ms for a
+  1.3MB Home response against ~630ms for the old trial-and-error `Decodable`) and runs in
+  a detached task. `Catalog` is no longer `@MainActor` (only `engine` and the lyrics cache
+  are), so `Parse` runs off the main thread too. Page loads no longer freeze the UI.
+- **Artwork decoded off-main, at display size.** `Artwork` measures itself into pixel tiers
+  (64…2048); `ImageCache` fetches, downsamples and decodes with ImageIO in the background,
+  and keeps one entry per URL at the largest size decoded so far. Art already in memory
+  shows on the first frame. `accent` / `ambient` / `palette` work from small thumbnails,
+  also off the main thread, sharing one `CIContext`.
+- **`PlayingIndicator` is a CALayer animation.** SwiftUI's `repeatForever` redrew the whole
+  queue panel every frame: CPU while playing with the queue open went from ~17% to ~0.4%.
+  Continuous decorative motion should use Core Animation.
+- **Smooth scrubber.** `PlaybackSlider` extrapolates between the bridge's 500ms reports
+  (`livePosition`) in a TimelineView, and `PlaybackTime` keeps the tick redraws inside
+  the time text. The pill, full-screen, menu bar and mini player all use them.
+- `NowPlaying` only republishes on a change or >1.5s drift; feed continuations append
+  without animation; `./build.sh` builds Dev optimized (`CONF=debug` for lldb).
+
 ## 4. Next
 
 - Advanced features: library mutation (like / add to playlist), search continuations,

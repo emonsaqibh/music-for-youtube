@@ -1,7 +1,8 @@
 #!/bin/bash
 # Builds the app bundle and ad-hoc signs it.
 #
-#   ./build.sh                    → build/Music for YouTube Dev.app  (dev flavor, debug)
+#   ./build.sh                    → build/Music for YouTube Dev.app  (dev flavor, optimized)
+#   CONF=debug ./build.sh         → the same, unoptimized (for lldb)
 #   FLAVOR=beta VERSION=x ./build.sh  → build/Music for YouTube.app  (used by release.sh)
 #
 # The two flavors have different bundle identifiers, so they keep separate sign-in
@@ -14,7 +15,9 @@ FLAVOR="${FLAVOR:-dev}"
 BASE_ID="dev.fringecore.ytmusic"
 case "$FLAVOR" in
     dev)
-        CONF="${CONF:-debug}"
+        # Optimized by default: an unoptimized SwiftUI build is noticeably laggier than
+        # what ships, which makes the dev app useless for judging how the UI feels.
+        CONF="${CONF:-release}"
         APP_NAME="Music for YouTube Dev"
         BUNDLE_ID="${BASE_ID}.dev"
         VERSION="${VERSION:-dev}"

@@ -67,19 +67,11 @@ struct MenuBarPlayer: View {
             }
 
             VStack(spacing: 3) {
-                ProgressSlider(
-                    value: Binding(get: { player.progress }, set: { _ in }),
-                    accent: .primary,
-                    trackHeight: 5,
-                    onScrub: { player.scrubTarget = $0 * player.duration },
-                    onCommit: { value in
-                        player.scrubTarget = nil
-                        player.seek(to: value * player.duration)
-                    })
+                PlaybackSlider(trackHeight: 5)
                 HStack {
-                    Text(Format.time(player.displayPosition))
+                    PlaybackTime(kind: .elapsed)
                     Spacer()
-                    Text("-" + Format.time(max(0, player.duration - player.displayPosition)))
+                    PlaybackTime(kind: .remaining)
                 }
                 .font(.system(size: 10, weight: .medium).monospacedDigit())
                 .foregroundStyle(.secondary)

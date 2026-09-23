@@ -39,9 +39,9 @@ enum Log {
         }
     }
 
-    private static func stamp() -> String {
-        let f = DateFormatter()
-        f.dateFormat = "HH:mm:ss.SSS"
-        return f.string(from: Date())
-    }
+    private static let stampFormat = Date.VerbatimFormatStyle(
+        format: "\(hour: .twoDigits(clock: .twentyFourHour, hourCycle: .zeroBased)):\(minute: .twoDigits):\(second: .twoDigits).\(secondFraction: .fractional(3))",
+        timeZone: .current, calendar: .current)
+
+    private static func stamp() -> String { Date().formatted(stampFormat) }
 }

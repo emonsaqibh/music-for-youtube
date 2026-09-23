@@ -223,7 +223,9 @@ struct FeedView: View {
                 shelf.id = prefix + shelf.id
                 return shelf
             }
-            withAnimation(.easeOut(duration: 0.25)) { shelves.append(contentsOf: fresh) }
+            // Not animated: these land below the fold while the user is scrolling, where an
+            // insertion animation only costs frames.
+            shelves.append(contentsOf: fresh)
             continuation = page.continuation
             if state != .ready, !shelves.isEmpty { state = .ready }
         } catch {

@@ -295,7 +295,8 @@ final class WebEngine: NSObject {
                     "return await window.__ytm.innertube(endpoint, body, client);",
                     ["endpoint": endpoint, "body": body, "client": client ?? NSNull()])
                 guard let text = raw as? String else { throw EngineError.badResponse }
-                return try JSON(parsing: text)
+                // Responses run to megabytes; parsing on the main thread stalls the UI.
+                return try await Task.detached(priority: .userInitiated) { try JSON(parsing: text) }.value
             } catch {
                 lastError = error
                 let message = (error as? EngineError)?.errorDescription ?? ""

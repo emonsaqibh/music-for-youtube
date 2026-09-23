@@ -140,22 +140,14 @@ struct NowPlayingDisplay: View {
 
     private var scrubber: some View {
         HStack(spacing: 6) {
-            Text(Format.time(player.displayPosition))
+            PlaybackTime(kind: .elapsed)
                 .font(.system(size: 9).monospacedDigit())
                 .foregroundStyle(.secondary)
                 .frame(width: 28, alignment: .trailing)
 
-            ProgressSlider(
-                value: Binding(get: { player.progress }, set: { _ in }),
-                accent: .primary,
-                trackHeight: 3,
-                onScrub: { player.scrubTarget = $0 * player.duration },
-                onCommit: { value in
-                    player.scrubTarget = nil
-                    player.seek(to: value * player.duration)
-                })
+            PlaybackSlider(trackHeight: 3)
 
-            Text("-" + Format.time(max(0, player.duration - player.displayPosition)))
+            PlaybackTime(kind: .remaining)
                 .font(.system(size: 9).monospacedDigit())
                 .foregroundStyle(.secondary)
                 .frame(width: 30, alignment: .leading)

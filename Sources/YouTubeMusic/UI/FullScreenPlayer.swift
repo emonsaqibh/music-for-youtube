@@ -137,20 +137,12 @@ struct FullScreenPlayer: View {
 
     private var scrubber: some View {
         VStack(spacing: 4) {
-            ProgressSlider(
-                value: Binding(get: { player.progress }, set: { _ in }),
-                accent: .primary,
-                trackHeight: 6,
-                onScrub: { player.scrubTarget = $0 * player.duration },
-                onCommit: { value in
-                    player.scrubTarget = nil
-                    player.seek(to: value * player.duration)
-                })
+            PlaybackSlider(trackHeight: 6, framesPerSecond: 30)
 
             HStack {
-                Text(Format.time(player.displayPosition))
+                PlaybackTime(kind: .elapsed)
                 Spacer()
-                Text("-" + Format.time(max(0, player.duration - player.displayPosition)))
+                PlaybackTime(kind: .remaining)
             }
             .font(.system(size: 11, weight: .medium).monospacedDigit())
             .foregroundStyle(.secondary)

@@ -29,19 +29,10 @@ struct MiniPlayerView: View {
                 }
                 .padding(.trailing, hovering ? 44 : 0)
 
-                ProgressSlider(
-                    value: Binding(get: { player.progress }, set: { _ in }),
-                    accent: .primary,
-                    trackHeight: 4,
-                    showsKnob: hovering,
-                    onScrub: { player.scrubTarget = $0 * player.duration },
-                    onCommit: { value in
-                        player.scrubTarget = nil
-                        player.seek(to: value * player.duration)
-                    })
+                PlaybackSlider(trackHeight: 4, showsKnob: hovering)
 
                 HStack(spacing: 0) {
-                    Text(Format.time(player.displayPosition))
+                    PlaybackTime(kind: .elapsed)
                         .frame(width: 36, alignment: .leading)
                     Spacer()
                     TransportButton(symbol: "backward.fill", size: 13, isEnabled: player.hasTrack) { player.previous() }
@@ -50,7 +41,7 @@ struct MiniPlayerView: View {
                         .contentTransition(.symbolEffect(.replace))
                     TransportButton(symbol: "forward.fill", size: 13, isEnabled: player.canGoNext) { player.next() }
                     Spacer()
-                    Text("-" + Format.time(max(0, player.duration - player.displayPosition)))
+                    PlaybackTime(kind: .remaining)
                         .frame(width: 36, alignment: .trailing)
                 }
                 .font(.system(size: 10, weight: .medium).monospacedDigit())

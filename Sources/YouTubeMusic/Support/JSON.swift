@@ -39,9 +39,29 @@ extension JSON: Decodable {
         }
     }
 
+    /// Parses with `JSONSerialization` rather than the `Decodable` conformance above:
+    /// decoding by trial (`try?` Bool, then Double, then String…) throws and catches at
+    /// nearly every node, and took ~0.6s on a typical 1.3MB Home response, against ~0.05s
+    /// here.
     init(parsing text: String) throws {
         guard let data = text.data(using: .utf8) else { throw JSONError.notUTF8 }
-        self = try JSONDecoder().decode(JSON.self, from: data)
+        self = JSON(foundation: try JSONSerialization.jsonObject(with: data, options: [.fragmentsAllowed]))
+    }
+
+    private init(foundation value: Any) {
+        switch value {
+        case let s as String:
+            self = .string(s)
+        case let n as NSNumber:
+            // JSON booleans arrive as NSNumber too; only the CF type tells them apart.
+            self = CFGetTypeID(n) == CFBooleanGetTypeID() ? .bool(n.boolValue) : .number(n.doubleValue)
+        case let a as [Any]:
+            self = .array(a.map(JSON.init(foundation:)))
+        case let o as [String: Any]:
+            self = .object(o.mapValues(JSON.init(foundation:)))
+        default:
+            self = .null
+        }
     }
 }
 
@@ -121,7 +141,7 @@ extension JSON {
         case .object(let o):
             // Array order (which is what carries shelf/track ordering) is preserved
             // below; sorting sibling keys just makes the walk deterministic.
-            for k in o.keys.sorted() where k == key { out.append(o[k]!) }
+            if let hit = o[key] { out.append(hit) }
             for k in o.keys.sorted() where k != key { o[k]!.collect(key, into: &out) }
         case .array(let a):
             for v in a { v.collect(key, into: &out) }

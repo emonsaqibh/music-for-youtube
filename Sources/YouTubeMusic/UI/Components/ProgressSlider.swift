@@ -58,3 +58,58 @@ struct ProgressSlider: View {
         .frame(height: 13)
     }
 }
+
+/// The current song's scrubber.
+///
+/// The bridge reports the position only twice a second, so a bar drawn from that alone
+/// moves in visible half-second steps. This one extrapolates between reports on the
+/// display's clock, so it glides — and it is its own view, so the redraw stays inside it
+/// instead of re-running whichever player hosts it.
+struct PlaybackSlider: View {
+    var trackHeight: CGFloat = 4
+    var showsKnob = true
+    /// How often the bar moves while playing. Wide bars need more steps to look smooth.
+    var framesPerSecond: Double = 20
+
+    @Environment(PlayerController.self) private var player
+
+    var body: some View {
+        let still = !player.isPlaying || player.isBuffering || player.scrubTarget != nil
+        TimelineView(.animation(minimumInterval: 1 / framesPerSecond, paused: still)) { context in
+            ProgressSlider(
+                value: Binding(get: { fraction(at: context.date) }, set: { _ in }),
+                accent: .primary,
+                trackHeight: trackHeight,
+                showsKnob: showsKnob,
+                onScrub: { player.scrubTarget = $0 * player.duration },
+                onCommit: { value in
+                    player.scrubTarget = nil
+                    player.seek(to: value * player.duration)
+                })
+        }
+    }
+
+    private func fraction(at date: Date) -> Double {
+        guard player.duration > 0 else { return 0 }
+        return min(1, player.livePosition(at: date) / player.duration)
+    }
+}
+
+/// Elapsed or remaining time. A separate view so each position report redraws only
+/// this text.
+struct PlaybackTime: View {
+    enum Kind { case elapsed, remaining }
+
+    let kind: Kind
+
+    @Environment(PlayerController.self) private var player
+
+    var body: some View {
+        switch kind {
+        case .elapsed:
+            Text(Format.time(player.displayPosition))
+        case .remaining:
+            Text("-" + Format.time(max(0, player.duration - player.displayPosition)))
+        }
+    }
+}

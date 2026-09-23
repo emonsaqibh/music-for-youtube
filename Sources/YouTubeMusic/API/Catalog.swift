@@ -31,9 +31,12 @@ enum SearchFilter: String, CaseIterable, Identifiable, Sendable {
 
 /// High-level access to YouTube Music's catalogue, all of it routed through the
 /// authenticated page so the user's own library and recommendations come back.
-@MainActor
+///
+/// Deliberately not main-actor: only the request itself hops to the engine, and turning
+/// the (often megabyte-sized) renderer tree into models happens off the main thread, so
+/// the UI keeps scrolling while a page loads.
 enum Catalog {
-    private static var engine: WebEngine { .shared }
+    @MainActor private static var engine: WebEngine { .shared }
 
     // MARK: Feeds
 
@@ -217,11 +220,12 @@ enum Catalog {
 
     // MARK: Lyrics
 
-    private static var lyricsCache: [String: Lyrics] = [:]
-    private static var lyricsInflight: [String: Task<Lyrics, Error>] = [:]
+    @MainActor private static var lyricsCache: [String: Lyrics] = [:]
+    @MainActor private static var lyricsInflight: [String: Task<Lyrics, Error>] = [:]
 
     /// Lyrics for a track: time-synced when YouTube has them, plain text otherwise.
     /// Empty (not an error) when the track has none.
+    @MainActor
     static func lyrics(videoId: String) async throws -> Lyrics {
         if let hit = lyricsCache[videoId] { return hit }
         if let running = lyricsInflight[videoId] { return try await running.value }

@@ -17,6 +17,11 @@ final class NowPlaying {
     private var lastTrackId: String?
     private var artworkTask: Task<Void, Never>?
 
+    /// What Control Center was last told. The system advances the elapsed time on its own
+    /// from the playback rate, so re-sending everything on each bridge report (twice a
+    /// second) is wasted work; only a change, or real drift such as a seek, is published.
+    private var published: (trackId: String, playing: Bool, duration: Double, position: Double, at: Date)?
+
     private init() {}
 
     func install() {
@@ -57,7 +62,14 @@ final class NowPlaying {
             center.nowPlayingInfo = nil
             center.playbackState = .stopped
             lastTrackId = nil
+            published = nil
             return
+        }
+
+        if let last = published, last.trackId == track.id,
+           last.playing == player.isPlaying, last.duration == player.duration {
+            let expected = last.position + (last.playing ? Date.now.timeIntervalSince(last.at) : 0)
+            if abs(expected - player.position) < 1.5 { return }
         }
 
         var info = center.nowPlayingInfo ?? [:]
@@ -86,13 +98,14 @@ final class NowPlaying {
 
         center.nowPlayingInfo = info
         center.playbackState = player.isPlaying ? .playing : .paused
+        published = (track.id, player.isPlaying, player.duration, player.position, .now)
     }
 
     private func loadArtwork(for track: Track) {
         artworkTask?.cancel()
         guard let url = track.artwork else { return }
         artworkTask = Task { [weak self] in
-            guard let image = await ImageCache.shared.image(Parse.upscaled(url, to: 600)),
+            guard let image = await ImageCache.shared.image(Parse.upscaled(url, to: 600), pixels: 600),
                   !Task.isCancelled,
                   self?.lastTrackId == track.id else { return }
             let artwork = MPMediaItemArtwork(boundsSize: image.size) { _ in image }

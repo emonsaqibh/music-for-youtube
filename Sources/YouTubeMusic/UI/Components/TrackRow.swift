@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 /// A single song row. Doubles as the album listing (numbered, no artwork) and the
@@ -174,29 +175,88 @@ struct ExplicitBadge: View {
 }
 
 /// The three dancing bars Apple Music shows beside the playing track.
+///
+/// Animated by Core Animation rather than SwiftUI. A SwiftUI `repeatForever` animation
+/// re-renders its hosting view on every frame for as long as music plays — in the queue
+/// panel that kept the main thread ~11% busy doing nothing but redrawing the list. Layer
+/// animations run in the render server and cost the app nothing per frame.
 struct PlayingIndicator: View {
     var color: Color = Theme.accent
-    @State private var phase: CGFloat = 0
 
     var body: some View {
-        HStack(alignment: .bottom, spacing: 2) {
-            ForEach(0..<3, id: \.self) { i in
-                Capsule()
-                    .fill(color)
-                    .frame(width: 2.5, height: height(for: i))
-            }
-        }
-        .frame(width: 14, height: 13, alignment: .bottom)
-        .task {
-            withAnimation(.easeInOut(duration: 0.55).repeatForever(autoreverses: true)) {
-                phase = 1
-            }
+        PlayingBars(color: NSColor(color))
+            .frame(width: 14, height: 13)
+    }
+}
+
+private struct PlayingBars: NSViewRepresentable {
+    let color: NSColor
+
+    func makeNSView(context: Context) -> PlayingBarsView { PlayingBarsView() }
+
+    func updateNSView(_ view: PlayingBarsView, context: Context) { view.color = color }
+}
+
+final class PlayingBarsView: NSView {
+    var color: NSColor = .controlAccentColor {
+        didSet { needsDisplay = true }
+    }
+
+    private let bars = (0..<3).map { _ in CALayer() }
+    /// Resting and peak heights of each bar, out of the 13pt it may use.
+    private let base: [CGFloat] = [11, 5, 8]
+    private let peak: [CGFloat] = [4, 13, 6]
+    private let barWidth: CGFloat = 2.5
+    private let gap: CGFloat = 2
+
+    override init(frame: NSRect) {
+        super.init(frame: frame)
+        wantsLayer = true
+        for bar in bars {
+            bar.anchorPoint = CGPoint(x: 0.5, y: 0)      // grow up from the baseline
+            bar.cornerRadius = barWidth / 2
+            layer?.addSublayer(bar)
         }
     }
 
-    private func height(for index: Int) -> CGFloat {
-        let base: [CGFloat] = [11, 5, 8]
-        let peak: [CGFloat] = [4, 13, 6]
-        return base[index] + (peak[index] - base[index]) * phase
+    required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
+
+    override var wantsUpdateLayer: Bool { true }
+
+    override func updateLayer() {
+        // Resolved here so a dynamic colour follows the appearance.
+        effectiveAppearance.performAsCurrentDrawingAppearance {
+            let cg = color.cgColor
+            for bar in bars { bar.backgroundColor = cg }
+        }
+    }
+
+    override func layout() {
+        super.layout()
+        let height = bounds.height
+        let totalWidth = barWidth * 3 + gap * 2
+        let x0 = (bounds.width - totalWidth) / 2
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        for (i, bar) in bars.enumerated() {
+            bar.bounds = CGRect(x: 0, y: 0, width: barWidth, height: height)
+            bar.position = CGPoint(x: x0 + CGFloat(i) * (barWidth + gap) + barWidth / 2, y: 0)
+        }
+        CATransaction.commit()
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        guard window != nil else { return }
+        for (i, bar) in bars.enumerated() {
+            let bounce = CABasicAnimation(keyPath: "transform.scale.y")
+            bounce.fromValue = base[i] / 13
+            bounce.toValue = peak[i] / 13
+            bounce.duration = 0.55
+            bounce.autoreverses = true
+            bounce.repeatCount = .infinity
+            bounce.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+            bar.add(bounce, forKey: "bounce")
+        }
     }
 }
