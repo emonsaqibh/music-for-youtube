@@ -48,9 +48,16 @@ kept apart and both can run at once:
 | Looks | blue icon (recoloured copy made by `build.sh`), **DEV** badge on Home | red icon, no badge |
 
 Releases are ad-hoc signed, not notarized: a browser-downloaded zip is quarantined and
-Gatekeeper blocks it on macOS 15+ ("Apple could not verify…"). `./install.sh [version]`
-installs a GitHub release via `gh` (no quarantine). Real fix = Developer ID signing +
-notarization, which needs a paid Apple Developer account (none on this Mac yet).
+Gatekeeper blocks it on macOS 15+ ("Apple could not verify…"). Locally, `release.sh`
+installs directly (no quarantine), which is how this Mac gets betas. `./publish.sh <ver>
+<notes>` tags and creates the private GitHub pre-release.
+
+**Public distribution is built but dormant — everything stays private until the owner
+says otherwise.** `install.sh` (curl one-liner) and `Support/Updater.swift` (self-update,
+off in dev) both fetch from `emonsaqibh/music-for-youtube-releases`, which does not exist
+now (it was created without the owner's go-ahead and deleted). Going public = recreate
+that repo, then `PUBLIC=1 ./publish.sh`. Until then update checks just fail quietly. Real
+fix for Gatekeeper = Developer ID + notarization (paid account, none yet).
 
 All development and testing uses the **dev** build. A release is frozen: `release.sh`
 builds in release config, saves the app and a `source.tar.gz` snapshot under

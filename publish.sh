@@ -4,9 +4,11 @@
 #   ./publish.sh 0.2.0-beta.2 notes.md
 #
 # - tags the current commit v<version> in this (private) repo and pushes it,
-# - creates a pre-release here with the zip (the source of record),
-# - creates the public release in the releases repo, marked Latest — that is what
-#   install.sh and the in-app updater fetch — and syncs install.sh + README there.
+# - creates a pre-release here with the zip.
+#
+# Going public is the owner's decision and hasn't been made: only with PUBLIC=1 does it
+# also publish to the public releases repo (which must exist first) — the Latest release
+# there is what install.sh and the in-app updater fetch.
 set -euo pipefail
 cd "$(dirname "$0")"
 
@@ -30,6 +32,11 @@ git push -q origin HEAD "$TAG"
 
 echo "==> private release"
 gh release create "$TAG" "$STAGE/$ASSET" --verify-tag --prerelease --title "$VERSION" --notes-file "$NOTES"
+
+if [ "${PUBLIC:-}" != 1 ]; then
+    echo "==> published $VERSION (private only)"
+    exit 0
+fi
 
 echo "==> syncing installer to $PUBLIC"
 git clone -q "https://github.com/$PUBLIC.git" "$STAGE/public"
