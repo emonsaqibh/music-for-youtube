@@ -7,6 +7,7 @@ struct RootView: View {
 
     var body: some View {
         @Bindable var router = router
+        @Bindable var editor = LibraryEditor.shared
 
         NavigationSplitView {
             SidebarView()
@@ -36,6 +37,19 @@ struct RootView: View {
             }
         }
         .animation(.spring(response: 0.45, dampingFraction: 0.9), value: router.showFullScreenPlayer)
+        .overlay(alignment: .bottom) {
+            LibraryNoticeView()
+                .padding(.bottom, Theme.playerClearance - 8)
+        }
+        .sheet(item: $editor.creating) { request in
+            NewPlaylistSheet(request: request) { id, title in
+                // Made from the menu, not for a song: go to it, as Music.app does.
+                if request.tracks.isEmpty {
+                    router.showFullScreenPlayer = false
+                    router.select(.playlist(id: id, title: title))
+                }
+            }
+        }
         .environment(router)
         .environment(player)
         .task {
@@ -46,6 +60,9 @@ struct RootView: View {
         .onReceive(NotificationCenter.default.publisher(for: .focusSearch)) { _ in
             router.showFullScreenPlayer = false
             router.focusSearch()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .libraryDidChange)) { _ in
+            Task { await router.reloadPlaylists() }
         }
         .onReceive(NotificationCenter.default.publisher(for: .showFullScreenPlayer)) { _ in
             if player.hasTrack { router.showFullScreenPlayer = true }
@@ -157,6 +174,7 @@ struct SidebarView: View {
         } else if !router.playlists.isEmpty {
             SidebarHeader(title: playlistsHeader, isCollapsed: $playlistsCollapsed)
             if !playlistsCollapsed {
+                NewPlaylistRow()
                 ForEach(router.playlists) { card in
                     SidebarRow(item: .playlist(id: card.playlistRouteId, title: card.title),
                                title: card.title,
@@ -167,11 +185,16 @@ struct SidebarView: View {
             // Saved playlists did not load, but the guide lists some — use those.
             SidebarHeader(title: playlistsHeader, isCollapsed: $playlistsCollapsed)
             if !playlistsCollapsed {
+                NewPlaylistRow()
                 ForEach(router.guide.playlists) { item in
                     SidebarRow(item: .playlist(id: String(item.browseId.dropFirst(2)), title: item.title),
                                title: item.title, symbol: item.symbol)
                 }
             }
+        } else if LibraryEditor.shared.canEdit {
+            // No playlists yet: the section is still where a first one gets made.
+            SidebarHeader(title: playlistsHeader, isCollapsed: $playlistsCollapsed)
+            if !playlistsCollapsed { NewPlaylistRow() }
         }
     }
 
@@ -251,6 +274,36 @@ private struct SidebarSearchField: View {
             if key != SidebarItem.search.key { focused = false }
         }
         .animation(.easeOut(duration: 0.15), value: focused)
+    }
+}
+
+/// "New Playlist" at the top of the sidebar's playlists — shown when the account can edit.
+private struct NewPlaylistRow: View {
+    @State private var hovering = false
+
+    var body: some View {
+        if LibraryEditor.shared.canEdit {
+            HStack(spacing: 8) {
+                Image(systemName: "plus")
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(Theme.accent)
+                    .frame(width: 22, height: 22)
+                    .background(Theme.accent.opacity(0.14), in: RoundedRectangle(cornerRadius: 4))
+                    .frame(width: 24)
+                Text("New Playlist")
+                    .font(.system(size: 15))
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, 12)
+            .frame(height: 32)
+            .background {
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .fill(hovering ? Color.primary.opacity(0.06) : .clear)
+            }
+            .contentShape(Rectangle())
+            .onHover { hovering = $0 }
+            .onTapGesture { LibraryEditor.shared.startNewPlaylist() }
+        }
     }
 }
 

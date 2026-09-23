@@ -48,7 +48,10 @@ struct CardTile: View {
         }
         .frame(width: width)
         .contentShape(Rectangle())
-        .onHover { hovering = $0 }
+        .onHover { inside in
+            hovering = inside
+            if inside, let videoId = card.videoId { LibraryEditor.shared.preparePlaylists(for: videoId) }
+        }
         .animation(.easeOut(duration: 0.18), value: hovering)
         .onTapGesture { open() }
         .contextMenu { menuItems }
@@ -60,6 +63,18 @@ struct CardTile: View {
         if isPlayable { Button("Play", systemImage: "play.fill") { playNow() } }
         if card.browseId != nil {
             Button("Go to \(card.kind.rawValue.capitalized)", systemImage: "arrow.forward") { open() }
+        }
+        if let track = songTrack {
+            Divider()
+            AddToPlaylistMenu(tracks: [track])
+        }
+    }
+
+    /// A song or video tile, as the track it plays.
+    private var songTrack: Track? {
+        card.videoId.map {
+            Track(id: $0, title: card.title, artists: [ArtistRef(id: nil, name: card.subtitle)],
+                  artwork: card.artwork)
         }
     }
 
@@ -81,11 +96,8 @@ struct CardTile: View {
     }
 
     private func playNow() {
-        if let videoId = card.videoId {
-            player.play(Track(id: videoId, title: card.title,
-                              artists: [ArtistRef(id: nil, name: card.subtitle)],
-                              artwork: card.artwork),
-                        source: card.subtitle)
+        if let track = songTrack {
+            player.play(track, source: card.subtitle)
         } else if let playlistId = card.playlistId {
             Task {
                 guard let tracks = try? await Catalog.tracks(inPlaylist: playlistId), !tracks.isEmpty else { return }

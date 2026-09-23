@@ -119,6 +119,8 @@ struct FullScreenPlayer: View {
                     if let id = track.album?.id {
                         Button("Go to Album", systemImage: "square.stack") { go(to: .album(id)) }
                     }
+                    Divider()
+                    AddToPlaylistMenu(tracks: [track])
                 } label: {
                     Image(systemName: "ellipsis")
                         .font(.system(size: 14, weight: .bold))
@@ -130,7 +132,8 @@ struct FullScreenPlayer: View {
                 .menuIndicator(.hidden)
                 .glassEffect(.regular.interactive(), in: Circle())
                 .fixedSize()
-                .disabled(track.artists.first?.id == nil && track.album?.id == nil)
+                .disabled(track.artists.first?.id == nil && track.album?.id == nil && !LibraryEditor.shared.canEdit)
+                .onAppear { LibraryEditor.shared.preparePlaylists(for: track.id) }
             }
         }
     }

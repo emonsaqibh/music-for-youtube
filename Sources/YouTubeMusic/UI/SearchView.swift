@@ -144,8 +144,9 @@ struct LibraryView: View {
                     }
                 }
 
-                if !cards.isEmpty {
+                if !cards.isEmpty || isPlaylists {
                     LazyVGrid(columns: columns, spacing: 26) {
+                        if isPlaylists, LibraryEditor.shared.canEdit { NewPlaylistTile() }
                         ForEach(cards) { CardTile(card: $0) }
                     }
                     .pageInsets()
@@ -156,7 +157,13 @@ struct LibraryView: View {
         }
         .overlay { StateOverlay(state: state, retry: { Task { await refresh() } }) }
         .task(id: item.id) { await refresh() }
+        .onReceive(NotificationCenter.default.publisher(for: .libraryDidChange)) { _ in
+            Task { await refresh() }
+        }
     }
+
+    /// The library's Playlists section, which starts with a New Playlist tile.
+    private var isPlaylists: Bool { item.browseId == Guide.likedPlaylistsId }
 
     /// Remembered sections show at once; fetched again only when older than a minute.
     private func refresh() async {
@@ -176,11 +183,36 @@ struct LibraryView: View {
 
     private func show(_ result: LibraryPage) {
         shelves = result.shelves
-        state = result.shelves.allSatisfy(\.isEmpty)
+        state = result.shelves.allSatisfy(\.isEmpty) && !(isPlaylists && LibraryEditor.shared.canEdit)
             ? .empty(result.emptyMessage
                      ?? (Session.shared.isSignedIn
                          ? "Nothing in \(item.title) yet."
                          : "Sign in to YouTube Music to see your \(item.title.lowercased())."))
             : .ready
+    }
+}
+
+/// The first tile on the Playlists page, as on YouTube Music: makes a new playlist.
+private struct NewPlaylistTile: View {
+    @State private var hovering = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            RoundedRectangle(cornerRadius: Theme.tileCorner, style: .continuous)
+                .fill(Color.primary.opacity(hovering ? 0.12 : 0.07))
+                .aspectRatio(1, contentMode: .fit)
+                .overlay {
+                    Image(systemName: "plus")
+                        .font(.system(size: 34, weight: .light))
+                        .foregroundStyle(Theme.accent)
+                }
+            Text("New Playlist")
+                .font(.system(size: 13, weight: .medium))
+        }
+        .contentShape(Rectangle())
+        .onHover { hovering = $0 }
+        .animation(.easeOut(duration: 0.18), value: hovering)
+        .onTapGesture { LibraryEditor.shared.startNewPlaylist() }
+        .help("New Playlist")
     }
 }

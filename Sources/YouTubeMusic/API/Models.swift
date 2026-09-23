@@ -22,6 +22,9 @@ struct Track: Identifiable, Hashable, Sendable, Codable {
     var isExplicit = false
     /// Identifies this row *within a playlist*, required to remove or reorder it.
     var setVideoId: String?
+    /// YouTube offers "Remove from playlist" on this row (the account's own playlists).
+    /// Optional so pages remembered on disk before it existed still decode.
+    var isRemovable: Bool?
     /// Position in a chart.
     var rank: ChartRank?
 
@@ -107,6 +110,15 @@ struct Collection: Identifiable, Hashable, Sendable, Codable {
     var tracks: [Track] = []
     var playlistId: String?
     var shelves: [Shelf] = []
+    /// One of the account's own playlists (it has no Save button).
+    var isOwned = false
+    /// In the library or not — nil when it can't be saved (the account's own playlists,
+    /// or signed out).
+    var isSaved: Bool?
+    /// What saving it targets: the playlist, or an album's audio playlist.
+    var saveTargetId: String?
+    /// Fetches YouTube's "Suggestions" for one of the account's own playlists.
+    var suggestionsToken: String?
 
     var totalSeconds: Int { tracks.compactMap(\.seconds).reduce(0, +) }
 }

@@ -86,6 +86,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             Task { await NavProbe.run() }
             return
         }
+        if PlaylistProbe.isRequested {
+            Task { await PlaylistProbe.run() }
+            return
+        }
         if PlaybackProbe.isRequested {
             Task { await PlaybackProbe.run() }
             return
@@ -125,7 +129,15 @@ struct PlaybackCommands: Commands {
     private var player: PlayerController { .shared }
 
     var body: some Commands {
-        CommandGroup(replacing: .newItem) {}
+        CommandGroup(replacing: .newItem) {
+            Button("New Playlist…") {
+                openWindow(id: WindowID.main)
+                NSApp.activate()
+                LibraryEditor.shared.startNewPlaylist()
+            }
+            .keyboardShortcut("n", modifiers: .command)
+            .disabled(!LibraryEditor.shared.canEdit)
+        }
 
         CommandGroup(after: .textEditing) {
             Button("Search") {

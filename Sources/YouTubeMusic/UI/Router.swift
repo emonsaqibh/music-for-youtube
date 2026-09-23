@@ -126,6 +126,11 @@ final class Router {
         playlists = (try? await Catalog.savedPlaylists()) ?? []
     }
 
+    /// A playlist was created, saved or unsaved in the app: list the library's playlists again.
+    func reloadPlaylists() async {
+        if let fresh = try? await Catalog.savedPlaylists() { playlists = fresh }
+    }
+
     /// Titles can change between fetches (a language switch); keep the same destination
     /// selected, with its new title.
     private func reconcileSelection() {

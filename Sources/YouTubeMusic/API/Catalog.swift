@@ -36,7 +36,7 @@ enum SearchFilter: String, CaseIterable, Identifiable, Sendable {
 /// the (often megabyte-sized) renderer tree into models happens off the main thread, so
 /// the UI keeps scrolling while a page loads.
 enum Catalog {
-    @MainActor private static var engine: WebEngine { .shared }
+    @MainActor static var engine: WebEngine { .shared }
 
     // MARK: Page memory
 
@@ -170,7 +170,7 @@ enum Catalog {
         let json = try await engine.innertube("browse", ["browseId": browseId])
         var result = collection(from: json, id: browseId, defaultKind: .playlist)
         result.playlistId = result.playlistId ?? playlistId
-        return (result, continuation(in: json))
+        return (result, trackContinuation(in: json))
     }
 
     static func playlistMore(_ token: String) async throws -> ([Track], String?) {
@@ -191,7 +191,7 @@ enum Catalog {
         result.playlistId = result.playlistId ?? playlistId
 
         // Long playlists page at 100 tracks; pull the rest before showing the list.
-        var token = continuation(in: json)
+        var token = trackContinuation(in: json)
         var pages = 0
         while let t = token, pages < 12 {
             json = try await engine.innertube("browse", ["continuation": t])
@@ -378,6 +378,13 @@ enum Catalog {
 
     // MARK: Helpers
 
+    /// The next page of a playlist's own tracks. Scoped to the track shelf: an own
+    /// playlist's page also carries a continuation for its Suggestions, which must not be
+    /// read as more tracks.
+    private static func trackContinuation(in json: JSON) -> String? {
+        continuation(in: json.first("musicPlaylistShelfRenderer") ?? json)
+    }
+
     private static func continuation(in json: JSON) -> String? {
         json.first("continuationCommand")?["token"].stringValue
             ?? json.first("nextContinuationData")?["continuation"].stringValue
@@ -407,6 +414,21 @@ enum Catalog {
 
         result.playlistId = Parse.playlistId(in: header)
             ?? json.first("musicPlayButtonRenderer").flatMap { Parse.playlistId(in: $0) }
+
+        // Only the account's own playlists come with the editable header — and with
+        // YouTube's song suggestions, loaded separately.
+        result.isOwned = json.first("musicEditablePlaylistDetailHeaderRenderer") != nil
+        if result.isOwned {
+            result.suggestionsToken = json.first("secondaryContents")?
+                .first("nextContinuationData")?["continuation"].stringValue
+        }
+        // Everything else can be saved to the library: a bookmark toggle, which only
+        // carries a like endpoint when signed in (signed out it opens a sign-in prompt).
+        if let toggle = header["buttons"].arrayValue.map({ $0["toggleButtonRenderer"] })
+            .first(where: { $0[path: "defaultServiceEndpoint.likeEndpoint"].exists }) {
+            result.isSaved = toggle["isToggled"].boolValue ?? false
+            result.saveTargetId = toggle[path: "defaultServiceEndpoint.likeEndpoint.target.playlistId"].stringValue
+        }
 
         // Take tracks from the dedicated track shelf so "related albums" carousels below
         // the listing do not leak into the track list.

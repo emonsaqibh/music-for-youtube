@@ -11,6 +11,8 @@ struct TrackRow: View {
     var albumWidth: CGFloat = 190
     /// Alternate rows get a faint band, as in Music.app's song lists.
     var striped = false
+    /// Set on the account's own playlists: offers "Remove from Playlist".
+    var onRemove: (() -> Void)?
     let onPlay: () -> Void
 
     @Environment(PlayerController.self) private var player
@@ -60,6 +62,7 @@ struct TrackRow: View {
                 Button("Play Next", systemImage: "text.line.first.and.arrowtriangle.forward") { player.playNext(track) }
                 Button("Play Last", systemImage: "text.line.last.and.arrowtriangle.forward") { player.addToQueue(track) }
                 Divider()
+                playlistItems
                 if let artist = track.artists.first, let id = artist.id {
                     Button("Go to Artist", systemImage: "music.mic") { router.open(.artist(id)) }
                 }
@@ -86,12 +89,25 @@ struct TrackRow: View {
                       : striped ? Color.primary.opacity(0.035) : .clear)
         }
         .contentShape(Rectangle())
-        .onHover { hovering = $0 }
+        .onHover { inside in
+            hovering = inside
+            if inside { LibraryEditor.shared.preparePlaylists(for: track.id) }
+        }
         .onTapGesture(perform: onPlay)
         .contextMenu {
             Button("Play", systemImage: "play.fill", action: onPlay)
             Button("Play Next", systemImage: "text.line.first.and.arrowtriangle.forward") { player.playNext(track) }
             Button("Play Last", systemImage: "text.line.last.and.arrowtriangle.forward") { player.addToQueue(track) }
+            Divider()
+            playlistItems
+        }
+    }
+
+    @ViewBuilder
+    private var playlistItems: some View {
+        AddToPlaylistMenu(tracks: [track])
+        if let onRemove, LibraryEditor.shared.canEdit {
+            Button("Remove from Playlist", systemImage: "minus.circle", role: .destructive, action: onRemove)
         }
     }
 
@@ -138,6 +154,8 @@ struct TrackList: View {
     var numbered = false
     var showArtwork = true
     var showAlbum = true
+    /// Offered on the rows YouTube itself lets the account remove.
+    var onRemove: ((Int) -> Void)?
     let onPlay: (Int) -> Void
 
     @State private var width: CGFloat = 800
@@ -152,7 +170,10 @@ struct TrackList: View {
                          showArtwork: showArtwork,
                          showAlbum: albumColumn,
                          albumWidth: min(260, max(150, width * 0.26)),
-                         striped: offset.isMultiple(of: 2)) {
+                         striped: offset.isMultiple(of: 2),
+                         onRemove: onRemove.flatMap { remove in
+                             track.isRemovable == true && track.setVideoId != nil ? { remove(offset) } : nil
+                         }) {
                     onPlay(offset)
                 }
             }

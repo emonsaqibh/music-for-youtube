@@ -15,6 +15,9 @@ struct CollectionView: View {
 
     @State private var collection: Collection?
     @State private var state: LoadState = .loading
+    @State private var saving = false
+    @State private var suggestions: [Track] = []
+    @State private var suggestionsRefresh: String?
 
     @State private var width: CGFloat = 900
 
@@ -25,6 +28,9 @@ struct CollectionView: View {
                     hero(collection)
                     trackList(collection)
                     footer(collection)
+                    if collection.isOwned, !suggestions.isEmpty {
+                        suggestionsSection
+                    }
                     ForEach(collection.shelves) { ShelfRow(shelf: $0, tileWidth: 150) }
                 }
             }
@@ -87,12 +93,16 @@ struct CollectionView: View {
                     PillButton(title: "Play", symbol: "play.fill") {
                         player.play(c.tracks, startingAt: 0, source: c.title)
                     }
+                    .disabled(c.tracks.isEmpty)
                     PillButton(title: "Shuffle", symbol: "shuffle") {
                         player.shufflePlay(c.tracks, source: c.title)
                     }
+                    .disabled(c.tracks.isEmpty)
+                    if let saved = c.isSaved, !c.isOwned, c.saveTargetId != nil, LibraryEditor.shared.canEdit {
+                        SaveButton(isSaved: saved, isWorking: saving) { toggleSaved() }
+                    }
                 }
                 .padding(.top, 10)
-                .disabled(c.tracks.isEmpty)
             }
             .frame(maxWidth: 620, alignment: .leading)
         }
@@ -106,8 +116,112 @@ struct CollectionView: View {
         // Albums number their rows; playlists show artwork because the artists vary.
         let numbered = c.kind != .playlist
         return TrackList(tracks: c.tracks, numbered: numbered,
-                         showArtwork: !numbered, showAlbum: !numbered) { offset in
+                         showArtwork: !numbered, showAlbum: !numbered,
+                         onRemove: c.kind == .playlist ? { remove(at: $0) } : nil) { offset in
             player.play(c.tracks, startingAt: offset, source: c.title)
+        }
+    }
+
+    // MARK: Editing
+
+    /// Takes the row out at once and puts it back if YouTube refuses.
+    private func remove(at offset: Int) {
+        guard case .playlist(let playlistId) = source, var c = collection, c.tracks.indices.contains(offset)
+        else { return }
+        let track = c.tracks.remove(at: offset)
+        collection = c
+        Task {
+            do {
+                try await LibraryEditor.shared.remove(track, from: playlistId)
+                if let current = collection { Catalog.remember(current, playlistId: playlistId) }
+            } catch {
+                if var current = collection {
+                    current.tracks.insert(track, at: min(offset, current.tracks.count))
+                    collection = current
+                }
+                LibraryEditor.shared.show("Couldn’t remove “\(track.title)”", isError: true)
+            }
+        }
+    }
+
+    private func toggleSaved() {
+        guard let c = collection, let saved = c.isSaved, let target = c.saveTargetId, !saving else { return }
+        saving = true
+        Task {
+            defer { saving = false }
+            do {
+                try await LibraryEditor.shared.setSaved(!saved, targetId: target, title: c.title)
+                collection?.isSaved = !saved
+                Catalog.collections.remove { $0.hasPrefix(cacheKeyPrefix) }
+            } catch {
+                LibraryEditor.shared.show(saved ? "Couldn’t remove it from your library"
+                                                : "Couldn’t save it to your library", isError: true)
+            }
+        }
+    }
+
+    // MARK: Suggestions
+
+    /// YouTube Music's "Suggestions" under an own playlist: songs to add with one click.
+    private var suggestionsSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Text("Suggestions")
+                    .font(.system(size: 20, weight: .bold))
+                Spacer()
+                if let token = suggestionsRefresh {
+                    Button("Refresh", systemImage: "arrow.clockwise") {
+                        Task { await loadSuggestions(token) }
+                    }
+                    .buttonStyle(.glass)
+                }
+            }
+            .pageInsets()
+
+            VStack(spacing: 0) {
+                ForEach(suggestions) { track in
+                    SuggestionRow(track: track) { add(track) }
+                }
+            }
+            .padding(.horizontal, Theme.pageInset - 10)
+        }
+    }
+
+    private func loadSuggestions(_ token: String) async {
+        guard let result = try? await Catalog.playlistSuggestions(token) else { return }
+        withAnimation(.easeInOut(duration: 0.2)) {
+            suggestions = result.tracks
+            suggestionsRefresh = result.refreshToken
+        }
+    }
+
+    /// Adds a suggestion to the end of the playlist.
+    private func add(_ track: Track) {
+        guard case .playlist(let playlistId) = source else { return }
+        withAnimation(.easeInOut(duration: 0.2)) { suggestions.removeAll { $0.id == track.id } }
+        Task {
+            do {
+                if let setVideoId = try await Catalog.addReturningRow(track.id, to: playlistId) {
+                    var added = track
+                    added.setVideoId = setVideoId.isEmpty ? nil : setVideoId
+                    added.isRemovable = !setVideoId.isEmpty
+                    collection?.tracks.append(added)
+                    if let current = collection { Catalog.remember(current, playlistId: playlistId) }
+                } else {
+                    LibraryEditor.shared.show("“\(track.title)” is already in this playlist")
+                }
+            } catch {
+                withAnimation { suggestions.insert(track, at: 0) }
+                LibraryEditor.shared.show("Couldn’t add “\(track.title)”", isError: true)
+            }
+        }
+    }
+
+    /// The remembered copy of this page, which a save makes stale.
+    private var cacheKeyPrefix: String {
+        switch source {
+        case .album(let browseId): "album|\(browseId)|"
+        case .playlist(let playlistId): "playlist|\(playlistId)|"
         }
     }
 
@@ -165,10 +279,76 @@ struct CollectionView: View {
     }
 
     private func show(_ result: Collection) {
+        if suggestions.isEmpty, suggestionsRefresh == nil, let token = result.suggestionsToken {
+            suggestionsRefresh = token      // marks it as asked for
+            Task { await loadSuggestions(token) }
+        }
         collection = result
         state = result.tracks.isEmpty && result.title.isEmpty
             ? .empty("This collection came back empty.")
             : .ready
+    }
+}
+
+/// One suggested song: artwork, title and artist, and a + that adds it.
+private struct SuggestionRow: View {
+    let track: Track
+    let onAdd: () -> Void
+
+    @Environment(PlayerController.self) private var player
+    @State private var hovering = false
+
+    var body: some View {
+        HStack(spacing: 12) {
+            Artwork(url: track.artwork, cornerRadius: 4)
+                .frame(width: 40, height: 40)
+            VStack(alignment: .leading, spacing: 1) {
+                Text(track.title).font(.system(size: 13)).lineLimit(1)
+                Text(track.artistLine).font(.system(size: 12)).foregroundStyle(.secondary).lineLimit(1)
+            }
+            Spacer(minLength: 12)
+            Text(track.seconds == nil ? "" : track.durationText)
+                .font(.system(size: 12).monospacedDigit())
+                .foregroundStyle(.secondary)
+            Button(action: onAdd) {
+                Image(systemName: "plus.circle")
+                    .font(.system(size: 18))
+                    .foregroundStyle(Theme.accent)
+                    .frame(width: 28, height: 28)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .help("Add to this playlist")
+        }
+        .padding(.vertical, 6)
+        .padding(.horizontal, 10)
+        .background(RoundedRectangle(cornerRadius: 7, style: .continuous)
+            .fill(hovering ? Color.primary.opacity(0.075) : .clear))
+        .contentShape(Rectangle())
+        .onHover { hovering = $0 }
+        .onTapGesture { player.play(track, source: "Suggestions") }
+    }
+}
+
+/// Save / Saved — the bookmark YouTube Music shows on playlists and albums that aren't
+/// the account's own.
+private struct SaveButton: View {
+    let isSaved: Bool
+    let isWorking: Bool
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            Label(isSaved ? "Saved" : "Save", systemImage: isSaved ? "checkmark" : "plus")
+                .font(.system(size: 13, weight: .semibold))
+                .contentTransition(.symbolEffect(.replace))
+                .frame(minWidth: 84)
+                .frame(height: 30)
+                .padding(.horizontal, 4)
+        }
+        .buttonStyle(.glass)
+        .disabled(isWorking)
+        .help(isSaved ? "Remove from your library" : "Save to your library")
     }
 }
 

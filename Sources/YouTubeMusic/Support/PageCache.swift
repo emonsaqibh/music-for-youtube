@@ -64,6 +64,15 @@ final class PageCache<Value: Codable & Sendable> {
         store(Entry(value: value, date: Date()), for: key, persist: true)
     }
 
+    /// Forgets pages that have changed (a playlist just edited), so they're fetched afresh.
+    func remove(where changed: (String) -> Bool) {
+        for key in order where changed(key) {
+            entries[key] = nil
+            if let url = diskURL(key) { try? FileManager.default.removeItem(at: url) }
+        }
+        order.removeAll(where: changed)
+    }
+
     /// Like `load`, for when nobody is waiting: failures are dropped.
     func prefetch(_ key: String, _ fetch: @escaping @Sendable () async throws -> Value) {
         guard entries[key] == nil, inflight[key] == nil else { return }

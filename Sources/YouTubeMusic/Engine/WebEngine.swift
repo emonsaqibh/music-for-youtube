@@ -289,8 +289,12 @@ final class WebEngine: NSObject {
     ///
     /// `client` presents the request as a different InnerTube client — e.g.
     /// `InnerTubeClient.androidMusic`, the only client YouTube serves timed lyrics to.
+    ///
+    /// `changesAccount` marks a request that edits the library. Those are only retried when
+    /// the bridge was missing and the request never left: a "Load failed" can mean YouTube
+    /// got it and the answer was lost, and sending it again would add a song twice.
     func innertube(_ endpoint: String, _ body: [String: Any],
-                   client: [String: Any]? = nil) async throws -> JSON {
+                   client: [String: Any]? = nil, changesAccount: Bool = false) async throws -> JSON {
         guard await waitUntilReady() else { throw EngineError.notReady }
 
         // A request issued while the page is starting a media load can come back as a
@@ -319,8 +323,9 @@ final class WebEngine: NSObject {
             } catch {
                 lastError = error
                 let message = (error as? EngineError)?.errorDescription ?? ""
-                let transient = message.contains("Load failed") || message.contains("network")
-                    || message.contains("__ytm")
+                let unsent = message.contains("__ytm")
+                let transient = unsent
+                    || (!changesAccount && (message.contains("Load failed") || message.contains("network")))
                 guard transient else { throw error }
             }
         }

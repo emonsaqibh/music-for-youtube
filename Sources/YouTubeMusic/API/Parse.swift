@@ -100,6 +100,8 @@ enum Parse {
 
         var track = Track(id: id, title: title)
         track.setVideoId = r[path: "playlistItemData.playlistSetVideoId"].stringValue
+        track.isRemovable = r["menu"].all("playlistEditEndpoint")
+            .contains { $0["actions"].arrayValue.contains { $0["action"].stringValue == "ACTION_REMOVE_VIDEO" } }
         track.artwork = artwork(r, size: 240)
         track.isExplicit = isExplicit(r["badges"])
         track.rank = rank(r)
