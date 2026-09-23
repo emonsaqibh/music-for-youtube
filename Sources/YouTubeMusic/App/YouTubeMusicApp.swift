@@ -76,6 +76,10 @@ enum WindowID {
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
+        if WebEngine.tracesPerf {
+            // Seconds since the process started, to put the other perf lines in context.
+            Log.write("perf launch: didFinishLaunching at \(Int(ProcessInfo.processInfo.systemUptime * 1000 - Double(Self.processStartMillis)))ms")
+        }
         NSApp.setActivationPolicy(.regular)
         AppSettings.shared.applyAppearance()
         if NavProbe.isRequested {
@@ -99,6 +103,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             Updater.shared.applyAutomaticChecks()
         }
     }
+
+    /// When this process started, in systemUptime milliseconds.
+    static let processStartMillis: Int = {
+        var info = kinfo_proc()
+        var size = MemoryLayout<kinfo_proc>.size
+        var mib: [Int32] = [CTL_KERN, KERN_PROC, KERN_PROC_PID, getpid()]
+        sysctl(&mib, 4, &info, &size, nil, 0)
+        let start = info.kp_proc.p_un.__p_starttime
+        let startDate = Date(timeIntervalSince1970: Double(start.tv_sec) + Double(start.tv_usec) / 1e6)
+        return Int((ProcessInfo.processInfo.systemUptime - Date().timeIntervalSince(startDate)) * 1000)
+    }()
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
 }

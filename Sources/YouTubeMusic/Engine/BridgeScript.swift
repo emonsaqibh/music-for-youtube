@@ -102,6 +102,7 @@ enum BridgeScript {
     // signed-in identity making requests that claim to be YouTube's Android app, which is
     // the oddest-looking traffic the app could produce; omitting them removes that signal.
     async innertube(endpoint, body, client) {
+      const t0 = performance.now();
       if (client) {
         const ctx = { client: Object.assign({ hl: (cfg('INNERTUBE_CONTEXT') || {}).client?.hl || 'en',
                                               gl: (cfg('INNERTUBE_CONTEXT') || {}).client?.gl || 'US' }, client) };
@@ -111,7 +112,9 @@ enum BridgeScript {
           body: JSON.stringify(Object.assign({ context: ctx }, body || {}))
         });
         if (!r.ok) { throw new Error('innertube/' + endpoint + ' (' + client.clientName + ') HTTP ' + r.status); }
-        return await r.text();
+        const ctext = await r.text();
+        if (window.__ytmTracePerf) { send('log', { text: 'perf net ' + endpoint + ' ' + Math.round(performance.now() - t0) + 'ms ' + ctext.length + 'B' }); }
+        return ctext;
       }
       const context = cfg('INNERTUBE_CONTEXT') || {
         client: { clientName: 'WEB_REMIX', clientVersion: '1.20250310.01.00', hl: 'en', gl: 'US' }
@@ -134,7 +137,9 @@ enum BridgeScript {
         body:        JSON.stringify(Object.assign({ context: context }, body || {}))
       });
       if (!res.ok) { throw new Error('innertube/' + endpoint + ' HTTP ' + res.status); }
-      return await res.text();
+      const text = await res.text();
+      if (window.__ytmTracePerf) { send('log', { text: 'perf net ' + endpoint + ' ' + Math.round(performance.now() - t0) + 'ms ' + text.length + 'B' }); }
+      return text;
     },
 
     command(name, arg) {

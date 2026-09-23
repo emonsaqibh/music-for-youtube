@@ -120,22 +120,55 @@ struct CollectionView: View {
 
     // MARK: Loading
 
+    /// A remembered album or playlist shows at once (refetched behind it when older than a
+    /// minute). A playlist shows its first 100 tracks as soon as they arrive; the rest
+    /// fill in underneath.
     private func refresh() async {
-        state = .loading
+        let started = ContinuousClock.now
+        defer { if WebEngine.tracesPerf { Log.write("perf page collection shown in \(WebEngine.ms(ContinuousClock.now - started))") } }
+
+        let key: String
+        switch source {
+        case .album(let browseId): key = Catalog.collectionKey(album: browseId)
+        case .playlist(let playlistId): key = Catalog.collectionKey(playlist: playlistId)
+        }
+        if let cached = Catalog.collections.cached(key) {
+            show(cached.value)
+            if cached.age < PageCache<Collection>.freshFor { return }
+        } else {
+            state = .loading
+        }
+
         do {
-            let result: Collection
             switch source {
-            case .album(let browseId): result = try await Catalog.album(browseId: browseId)
-            case .playlist(let playlistId): result = try await Catalog.playlist(playlistId: playlistId)
+            case .album(let browseId):
+                show(try await Catalog.album(browseId: browseId))
+            case .playlist(let playlistId):
+                var (result, token) = try await Catalog.playlistFirstPage(playlistId: playlistId)
+                if collection == nil || token == nil { show(result) }
+                var pages = 0
+                while let next = token, pages < 12, !Task.isCancelled {
+                    let (more, following) = try await Catalog.playlistMore(next)
+                    if more.isEmpty { break }
+                    result.tracks.append(contentsOf: more)
+                    if collection?.tracks.count ?? 0 < result.tracks.count { show(result) }
+                    token = following
+                    pages += 1
+                }
+                show(result)
+                Catalog.remember(result, playlistId: playlistId)
             }
-            collection = result
-            state = result.tracks.isEmpty && result.title.isEmpty
-                ? .empty("This collection came back empty.")
-                : .ready
         } catch {
-            collection = nil
+            guard collection == nil else { return }     // keep what's on screen
             state = .failed(error.localizedDescription)
         }
+    }
+
+    private func show(_ result: Collection) {
+        collection = result
+        state = result.tracks.isEmpty && result.title.isEmpty
+            ? .empty("This collection came back empty.")
+            : .ready
     }
 }
 
@@ -218,13 +251,22 @@ struct ArtistView: View {
     }
 
     private func refresh() async {
-        state = .loading
+        let started = ContinuousClock.now
+        defer { if WebEngine.tracesPerf { Log.write("perf page artist shown in \(WebEngine.ms(ContinuousClock.now - started))") } }
+        // A remembered artist shows at once; refetched behind it when older than a minute.
+        if let cached = Catalog.artists.cached(Catalog.artistKey(browseId)) {
+            artist = cached.value
+            state = .ready
+            if cached.age < PageCache<ArtistPage>.freshFor { return }
+        } else {
+            state = .loading
+        }
         do {
             let result = try await Catalog.artist(browseId: browseId)
             artist = result
             state = result.shelves.isEmpty && result.name.isEmpty ? .empty("No artist page found.") : .ready
         } catch {
-            artist = nil
+            guard artist == nil else { return }         // keep what's on screen
             state = .failed(error.localizedDescription)
         }
     }

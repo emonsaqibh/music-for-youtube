@@ -347,6 +347,19 @@ page, which searches as you type (Return = now, via `router.searchSubmitted`). T
 page has no field of its own any more. Edit › Search (⌘K) opens the main window and
 focuses the field (`Notification.Name.focusSearch` → `Router.focusSearch()`).
 
+**Snappier navigation (`Support/PageCache.swift`).** Measured with `YTM_TRACE_PERF=1`
+(page network time, Swift total, parse, and when each page shows): parsing and the web
+bridge cost almost nothing; the waiting was the network (0.4–0.9s) on every click, and
+every revisit refetched. Now feeds, library sections, albums/playlists and artists are
+remembered (`Catalog.feeds/libraries/collections/artists`, keyed with the profile):
+a page shows at once from memory and is refetched only when older than 60s (quietly,
+behind it). Simultaneous requests for one page share a fetch (Home was fetched twice at
+launch). Chips highlight on click, the old page stays up dimmed with a spinner, and a
+chip's page is prefetched after 200ms of hover. Home's first page (with any shelves
+scrolled in) is kept on disk in Caches, so launch shows it in ~0.1s instead of ~3.6s.
+Playlists show their first 100 tracks at once and fill in the rest. The cache and its
+disk folder are wiped on `WebEngine.sessionDidChange` (sign-in/out, profile switch).
+
 ## 4. Next
 
 - Advanced features: library mutation (like / add to playlist), search continuations,

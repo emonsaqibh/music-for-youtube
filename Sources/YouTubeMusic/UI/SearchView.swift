@@ -158,20 +158,29 @@ struct LibraryView: View {
         .task(id: item.id) { await refresh() }
     }
 
+    /// Remembered sections show at once; fetched again only when older than a minute.
     private func refresh() async {
-        state = .loading
+        if let cached = Catalog.libraries.cached(Catalog.libraryKey(item)) {
+            show(cached.value)
+            if cached.age < PageCache<LibraryPage>.freshFor { return }
+        } else {
+            state = .loading
+        }
         do {
-            let result = try await Catalog.library(item)
-            shelves = result.shelves
-            state = result.shelves.allSatisfy(\.isEmpty)
-                ? .empty(result.emptyMessage
-                         ?? (Session.shared.isSignedIn
-                             ? "Nothing in \(item.title) yet."
-                             : "Sign in to YouTube Music to see your \(item.title.lowercased())."))
-                : .ready
+            show(try await Catalog.library(item))
         } catch {
-            shelves = []
+            guard shelves.isEmpty else { return }       // keep what's on screen
             state = .failed(error.localizedDescription)
         }
+    }
+
+    private func show(_ result: LibraryPage) {
+        shelves = result.shelves
+        state = result.shelves.allSatisfy(\.isEmpty)
+            ? .empty(result.emptyMessage
+                     ?? (Session.shared.isSignedIn
+                         ? "Nothing in \(item.title) yet."
+                         : "Sign in to YouTube Music to see your \(item.title.lowercased())."))
+            : .ready
     }
 }

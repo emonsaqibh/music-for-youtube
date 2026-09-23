@@ -38,6 +38,25 @@ enum SearchFilter: String, CaseIterable, Identifiable, Sendable {
 enum Catalog {
     @MainActor private static var engine: WebEngine { .shared }
 
+    // MARK: Page memory
+
+    /// Home, Explore, Charts, chips and See All pages. The plain Home page is also kept on
+    /// disk so it can show at launch before the engine is up.
+    @MainActor static let feeds = PageCache<FeedPage>(
+        limit: 40,
+        directory: URL.cachesDirectory.appending(path: (Bundle.main.bundleIdentifier ?? "ytm") + "/pages",
+                                                 directoryHint: .isDirectory),
+        persists: { $0.hasPrefix("feed|FEmusic_home||") })
+    @MainActor static let collections = PageCache<Collection>(limit: 30)
+    @MainActor static let artists = PageCache<ArtistPage>(limit: 20)
+    @MainActor static let libraries = PageCache<LibraryPage>(limit: 20)
+
+    /// Everything that makes a feed page distinct — and the profile, so the account's and
+    /// the guest's pages never mix.
+    @MainActor static func feedKey(_ browseId: String, params: String?, filterValue: String?) -> String {
+        "feed|\(browseId)|\(params ?? "")|\(filterValue ?? "")|\(Session.shared.profile.rawValue)"
+    }
+
     // MARK: Feeds
 
     static func home() async throws -> [Shelf] {
@@ -62,7 +81,24 @@ enum Catalog {
     /// A library section, plus YouTube's own message for when it is empty.
     /// The first page of a feed. Later pages come from `feed(continuation:)`.
     /// `filterValue` is a `FeedFilter` choice — a country, for Charts.
+    /// Fetches a feed page (sharing a fetch already under way) and remembers it; views show
+    /// `feeds.cached(feedKey(…))` first.
+    @MainActor
     static func feed(_ browseId: String, params: String? = nil, filterValue: String? = nil) async throws -> FeedPage {
+        try await feeds.load(feedKey(browseId, params: params, filterValue: filterValue)) {
+            try await fetchFeed(browseId, params: params, filterValue: filterValue)
+        }
+    }
+
+    /// Warms the page memory — used when the pointer rests on a chip.
+    @MainActor
+    static func prefetchFeed(_ browseId: String, params: String?, filterValue: String?) {
+        feeds.prefetch(feedKey(browseId, params: params, filterValue: filterValue)) {
+            try await fetchFeed(browseId, params: params, filterValue: filterValue)
+        }
+    }
+
+    private static func fetchFeed(_ browseId: String, params: String?, filterValue: String?) async throws -> FeedPage {
         var body: [String: Any] = ["browseId": browseId]
         if let params { body["params"] = params }
         if let filterValue { body["formData"] = ["selectedValues": [filterValue]] }
@@ -73,11 +109,18 @@ enum Catalog {
         Parse.feedPage(try await engine.innertube("browse", ["continuation": token]))
     }
 
-    static func library(_ item: NavItem) async throws -> (shelves: [Shelf], emptyMessage: String?) {
-        var body: [String: Any] = ["browseId": item.browseId]
-        if let params = item.params { body["params"] = params }
-        let json = try await engine.innertube("browse", body)
-        return (Parse.shelves(in: json), Parse.emptyMessage(in: json))
+    @MainActor static func libraryKey(_ item: NavItem) -> String {
+        "library|\(item.id)|\(Session.shared.profile.rawValue)"
+    }
+
+    @MainActor
+    static func library(_ item: NavItem) async throws -> LibraryPage {
+        try await libraries.load(libraryKey(item)) {
+            var body: [String: Any] = ["browseId": item.browseId]
+            if let params = item.params { body["params"] = params }
+            let json = try await engine.innertube("browse", body)
+            return LibraryPage(shelves: Parse.shelves(in: json), emptyMessage: Parse.emptyMessage(in: json))
+        }
     }
 
     /// The user's saved playlists, with artwork — what the sidebar lists.
@@ -104,9 +147,40 @@ enum Catalog {
 
     // MARK: Detail pages
 
+    @MainActor static func collectionKey(album browseId: String) -> String {
+        "album|\(browseId)|\(Session.shared.profile.rawValue)"
+    }
+
+    @MainActor static func collectionKey(playlist playlistId: String) -> String {
+        "playlist|\(playlistId)|\(Session.shared.profile.rawValue)"
+    }
+
+    @MainActor
     static func album(browseId: String) async throws -> Collection {
+        try await collections.load(collectionKey(album: browseId)) {
+            let json = try await engine.innertube("browse", ["browseId": browseId])
+            return collection(from: json, id: browseId, defaultKind: .album)
+        }
+    }
+
+    /// A playlist's first page (up to 100 tracks) and the token for the rest — so the page
+    /// can show at once and fill in, instead of waiting for every page first.
+    static func playlistFirstPage(playlistId: String) async throws -> (Collection, String?) {
+        let browseId = playlistId.hasPrefix("VL") ? playlistId : "VL" + playlistId
         let json = try await engine.innertube("browse", ["browseId": browseId])
-        return collection(from: json, id: browseId, defaultKind: .album)
+        var result = collection(from: json, id: browseId, defaultKind: .playlist)
+        result.playlistId = result.playlistId ?? playlistId
+        return (result, continuation(in: json))
+    }
+
+    static func playlistMore(_ token: String) async throws -> ([Track], String?) {
+        let json = try await engine.innertube("browse", ["continuation": token])
+        return (json.all("musicResponsiveListItemRenderer").compactMap(Parse.track), continuation(in: json))
+    }
+
+    /// Remembers a playlist once all of it has loaded.
+    @MainActor static func remember(_ collection: Collection, playlistId: String) {
+        collections.put(collection, for: collectionKey(playlist: playlistId))
     }
 
     static func playlist(playlistId: String) async throws -> Collection {
@@ -130,7 +204,16 @@ enum Catalog {
         return result
     }
 
+    @MainActor static func artistKey(_ browseId: String) -> String {
+        "artist|\(browseId)|\(Session.shared.profile.rawValue)"
+    }
+
+    @MainActor
     static func artist(browseId: String) async throws -> ArtistPage {
+        try await artists.load(artistKey(browseId)) { try await fetchArtist(browseId: browseId) }
+    }
+
+    private static func fetchArtist(browseId: String) async throws -> ArtistPage {
         let json = try await engine.innertube("browse", ["browseId": browseId])
         let header = json.first("musicImmersiveHeaderRenderer")
             ?? json.first("musicVisualHeaderRenderer")

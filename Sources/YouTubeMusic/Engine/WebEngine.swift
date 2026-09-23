@@ -303,12 +303,19 @@ final class WebEngine: NSObject {
                 guard await waitUntilReady() else { throw EngineError.notReady }
             }
             do {
+                let started = ContinuousClock.now
                 let raw = try await call(
                     "return await window.__ytm.innertube(endpoint, body, client);",
                     ["endpoint": endpoint, "body": body, "client": client ?? NSNull()])
                 guard let text = raw as? String else { throw EngineError.badResponse }
+                let received = ContinuousClock.now
                 // Responses run to megabytes; parsing on the main thread stalls the UI.
-                return try await Task.detached(priority: .userInitiated) { try JSON(parsing: text) }.value
+                let json = try await Task.detached(priority: .userInitiated) { try JSON(parsing: text) }.value
+                if Self.tracesPerf {
+                    Log.write("perf swift \(endpoint) total=\(Self.ms(received - started)) "
+                              + "parse=\(Self.ms(ContinuousClock.now - received)) \(text.utf8.count)B")
+                }
+                return json
             } catch {
                 lastError = error
                 let message = (error as? EngineError)?.errorDescription ?? ""
@@ -398,6 +405,13 @@ extension WebEngine: WKScriptMessageHandler {
     /// `YTM_TRACE_TICKS=1` logs every snapshot the page sends — for diagnosing a player
     /// display that stops following playback.
     private static let tracesTicks = ProcessInfo.processInfo.environment["YTM_TRACE_TICKS"] == "1"
+    /// `YTM_TRACE_PERF=1` times every InnerTube request: network inside the page, the
+    /// total seen from here (the difference is the bridge), and parsing.
+    static let tracesPerf = ProcessInfo.processInfo.environment["YTM_TRACE_PERF"] == "1"
+
+    static func ms(_ d: Duration) -> String {
+        "\(Int((Double(d.components.seconds) + Double(d.components.attoseconds) / 1e18) * 1000))ms"
+    }
 
     private func handle(type: String, payload: [String: Any]) {
         switch type {
@@ -407,6 +421,7 @@ extension WebEngine: WKScriptMessageHandler {
 
         case "ready":
             isBound = true
+            if Self.tracesPerf { webView.evaluateJavaScript("window.__ytmTracePerf = true") }
             if let signedIn = payload["signedIn"] as? Bool { Session.shared.pageReported(signedIn: signedIn) }
             let snap = PlayerSnapshot(payload["snapshot"] as? [String: Any] ?? [:])
             emit(.ready(signedIn: isSignedIn, snapshot: snap))

@@ -1,18 +1,18 @@
 import Foundation
 
-struct ArtistRef: Hashable, Sendable, Identifiable {
+struct ArtistRef: Hashable, Sendable, Identifiable, Codable {
     var id: String?
     var name: String
     var identity: String { id ?? name }
 }
 
-struct AlbumRef: Hashable, Sendable {
+struct AlbumRef: Hashable, Sendable, Codable {
     var id: String?
     var name: String
 }
 
 /// A playable song.
-struct Track: Identifiable, Hashable, Sendable {
+struct Track: Identifiable, Hashable, Sendable, Codable {
     var id: String                  // videoId
     var title: String
     var artists: [ArtistRef] = []
@@ -32,14 +32,14 @@ struct Track: Identifiable, Hashable, Sendable {
     var durationText: String { Format.duration(seconds) }
 }
 
-enum CardKind: String, Hashable, Sendable {
+enum CardKind: String, Hashable, Sendable, Codable {
     case album, single, ep, playlist, artist, song, video, podcast, other
 
     var isCircular: Bool { self == .artist }
 }
 
 /// One tile in a shelf — an album, playlist, artist or song.
-struct Card: Identifiable, Hashable, Sendable {
+struct Card: Identifiable, Hashable, Sendable, Codable {
     var id: String
     var kind: CardKind = .other
     var title: String
@@ -57,15 +57,15 @@ struct Card: Identifiable, Hashable, Sendable {
 }
 
 /// A chart position and which way it moved since the last chart.
-struct ChartRank: Hashable, Sendable {
-    enum Trend: Hashable, Sendable { case up, down, same }
+struct ChartRank: Hashable, Sendable, Codable {
+    enum Trend: Hashable, Sendable, Codable { case up, down, same }
     var position: String
     var trend: Trend?
 }
 
 /// A button that opens another browse page: Explore's New releases / Charts / Moods &
 /// genres, and every mood and genre tile.
-struct NavButton: Identifiable, Hashable, Sendable {
+struct NavButton: Identifiable, Hashable, Sendable, Codable {
     var title: String
     var browseId: String
     var params: String?
@@ -77,7 +77,7 @@ struct NavButton: Identifiable, Hashable, Sendable {
     var id: String { browseId + (params ?? "") + title }
 }
 
-struct Shelf: Identifiable, Hashable, Sendable {
+struct Shelf: Identifiable, Hashable, Sendable, Codable {
     var id: String
     var title: String
     var strapline: String?
@@ -96,7 +96,7 @@ struct Shelf: Identifiable, Hashable, Sendable {
 }
 
 /// An album or playlist detail page.
-struct Collection: Identifiable, Hashable, Sendable {
+struct Collection: Identifiable, Hashable, Sendable, Codable {
     var id: String
     var kind: CardKind = .album
     var title: String
@@ -112,7 +112,7 @@ struct Collection: Identifiable, Hashable, Sendable {
 }
 
 /// An artist detail page.
-struct ArtistPage: Identifiable, Hashable, Sendable {
+struct ArtistPage: Identifiable, Hashable, Sendable, Codable {
     var id: String
     var name: String
     var artwork: URL?
@@ -226,7 +226,7 @@ struct Lyrics: Hashable, Sendable {
 
 /// One page of a browse feed (Home, Explore, "See All"). YouTube sends a few shelves at a
 /// time plus a token for the next batch, which the web app fetches as you scroll.
-struct FeedPage: Sendable {
+struct FeedPage: Sendable, Codable {
     var shelves: [Shelf] = []
     var continuation: String?
     /// The mood chips across the top of Home ("Workout", "Relax", …).
@@ -237,8 +237,8 @@ struct FeedPage: Sendable {
 
 /// A menu that re-requests the whole page with the chosen value (sent as the browse
 /// request's `formData`). Charts uses it to pick a country.
-struct FeedFilter: Hashable, Sendable {
-    struct Option: Identifiable, Hashable, Sendable {
+struct FeedFilter: Hashable, Sendable, Codable {
+    struct Option: Identifiable, Hashable, Sendable, Codable {
         var title: String
         /// What the page is re-requested with — a country code for Charts.
         var value: String
@@ -257,7 +257,7 @@ struct FeedFilter: Hashable, Sendable {
 
 /// A filter chip. Selecting one reloads the same feed with its params; deselecting uses
 /// the chip's own "deselect" endpoint rather than assuming the default page.
-struct FeedChip: Identifiable, Hashable, Sendable {
+struct FeedChip: Identifiable, Hashable, Sendable, Codable {
     var title: String
     var browseId: String
     var params: String?
@@ -265,4 +265,10 @@ struct FeedChip: Identifiable, Hashable, Sendable {
     var isSelected: Bool
 
     var id: String { title }
+}
+
+/// A library section as fetched: its shelves, and YouTube's own "nothing here" message.
+struct LibraryPage: Sendable, Codable {
+    var shelves: [Shelf]
+    var emptyMessage: String?
 }

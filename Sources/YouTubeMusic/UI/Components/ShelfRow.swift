@@ -126,6 +126,13 @@ struct FeedView: View {
     /// Charts' country menu, and the choice sent with the request.
     @State private var filter: FeedFilter?
     @State private var filterValue: String?
+    /// The page on screen, and the one asked for. They differ while a chip's or country's
+    /// page is on its way: the old one stays up, dimmed, instead of blanking to a spinner.
+    @State private var shownKey: String?
+    @State private var wantedKey: String?
+    @State private var hoveredChip: String?
+
+    private var isSwitching: Bool { wantedKey != nil && wantedKey != shownKey && shownKey != nil }
 
     /// The last choice is remembered per page, so Charts reopens on the same country.
     private var filterKey: String { "feed.filter." + browseId }
@@ -134,19 +141,26 @@ struct FeedView: View {
         ScrollView {
             LazyVStack(alignment: .leading, spacing: Theme.shelfGap) {
                 VStack(alignment: .leading, spacing: 14) {
-                    PageTitle(text: title,
-                              badge: BuildFlavor.isDev && browseId == "FEmusic_home" ? "DEV" : nil)
+                    HStack(alignment: .center, spacing: 0) {
+                        PageTitle(text: title,
+                                  badge: BuildFlavor.isDev && browseId == "FEmusic_home" ? "DEV" : nil)
+                        if isSwitching {
+                            ProgressView().controlSize(.small).padding(.top, Theme.contentTop)
+                        }
+                    }
                     if let filter {
                         FilterMenu(filter: filter) { choose($0) }
                             .pageInsets()
                     }
                     if !chips.isEmpty {
-                        ChipBar(chips: chips) { chip in select(chip) }
+                        ChipBar(chips: chips, onSelect: select, onHover: hover)
                     }
                 }
                 .padding(.bottom, chips.isEmpty && filter == nil ? 0 : -8)
 
                 ForEach(shelves) { ShelfRow(shelf: $0) }
+                    .opacity(isSwitching ? 0.45 : 1)
+                    .animation(.easeOut(duration: 0.15), value: isSwitching)
 
                 if let continuation {
                     ProgressView()
@@ -162,50 +176,100 @@ struct FeedView: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.bottom, Theme.playerClearance)
         }
-        .overlay { StateOverlay(state: state, retry: { Task { await refresh() } }) }
+        .overlay { StateOverlay(state: state, retry: { Task { await load() } }) }
         .task(id: browseId + (params ?? "")) {
             chipParams = nil
             filterValue = UserDefaults.standard.string(forKey: filterKey)
-            await refresh()
+            await load()
         }
     }
 
+    /// Marks the chip at once — the page follows, instantly if it was loaded before.
     private func select(_ chip: FeedChip) {
         chipParams = chip.isSelected ? chip.deselectParams : chip.params
-        Task { await refresh(keepingChips: true) }
+        chips = chips.map { other in
+            var other = other
+            other.isSelected = !chip.isSelected && other.id == chip.id
+            return other
+        }
+        Task { await load(keepingChips: true) }
+    }
+
+    /// A pointer resting on a chip loads its page ahead of the click.
+    private func hover(_ chip: FeedChip, _ inside: Bool) {
+        hoveredChip = inside ? chip.id : (hoveredChip == chip.id ? nil : hoveredChip)
+        guard inside else { return }
+        let target = chip.isSelected ? chip.deselectParams : chip.params
+        Task {
+            try? await Task.sleep(for: .milliseconds(200))
+            guard hoveredChip == chip.id else { return }
+            Catalog.prefetchFeed(browseId, params: target, filterValue: filterValue)
+        }
     }
 
     private func choose(_ option: FeedFilter.Option) {
         filterValue = option.value
         UserDefaults.standard.set(option.value, forKey: filterKey)
-        Task { await refresh(keepingChips: true) }
+        Task { await load(keepingChips: true) }
     }
 
-    private func refresh(keepingChips: Bool = false) async {
-        if shelves.isEmpty { state = .loading }
-        do {
-            let page = try await Catalog.feed(browseId, params: chipParams ?? params, filterValue: filterValue)
-            pageCount = 1
-            withAnimation(.easeOut(duration: 0.25)) {
-                shelves = page.shelves
-                // The chip row comes with the first page; a filtered page re-sends it with
-                // the new selection marked.
-                if !page.chips.isEmpty || !keepingChips { chips = page.chips }
-                filter = page.filter
+    /// Shows the remembered page at once when there is one; fetches only when there isn't,
+    /// or when it's older than `PageCache.freshFor` (then quietly, behind it).
+    private func load(keepingChips: Bool = false) async {
+        let request = (params: chipParams ?? params, filter: filterValue)
+        let key = Catalog.feedKey(browseId, params: request.params, filterValue: request.filter)
+        wantedKey = key
+        let started = ContinuousClock.now
+        defer {
+            if WebEngine.tracesPerf {
+                Log.write("perf page \(browseId) shown in \(WebEngine.ms(ContinuousClock.now - started)) (shelves \(shelves.count))")
             }
-            continuation = page.continuation
-            state = page.shelves.isEmpty && page.continuation == nil
-                ? .empty(Session.shared.isGuest || !Session.shared.isSignedIn
-                         ? "Sign in to YouTube Music to see your recommendations."
-                         : "Nothing here right now.")
-                : .ready
-            // Some first pages are almost empty; fetch on until there is something to show.
-            if page.shelves.count < 2, page.continuation != nil { await loadMore() }
-        } catch {
-            shelves = []
-            continuation = nil
-            state = .failed(error.localizedDescription)
         }
+
+        if let cached = Catalog.feeds.cached(key) {
+            show(cached.value, key: key, keepingChips: keepingChips)
+            if WebEngine.tracesPerf { Log.write("perf page \(browseId) from memory, \(Int(cached.age))s old") }
+            if cached.age < PageCache<FeedPage>.freshFor { return }
+        } else if shelves.isEmpty {
+            state = .loading
+        }
+
+        do {
+            let page = try await Catalog.feed(browseId, params: request.params, filterValue: request.filter)
+            guard wantedKey == key else { return }      // another chip was picked meanwhile
+            show(page, key: key, keepingChips: keepingChips)
+        } catch {
+            guard wantedKey == key else { return }
+            if shownKey == nil {
+                shelves = []
+                continuation = nil
+                state = .failed(error.localizedDescription)
+            } else {
+                // Keep what's on screen; just stop waiting for the page that failed.
+                Log.write("feed: \(browseId) failed — \(error.localizedDescription)")
+                wantedKey = shownKey
+            }
+        }
+    }
+
+    private func show(_ page: FeedPage, key: String, keepingChips: Bool) {
+        // Continuation pages prefix their shelf ids "p1-", "p2-"…; carry on from there.
+        let continued = page.shelves.compactMap { Int($0.id.dropFirst().prefix { $0.isNumber }) }
+        pageCount = 1 + (continued.max() ?? 0)
+        shelves = page.shelves
+        // The chip row comes with the first page; a filtered page re-sends it with the new
+        // selection marked.
+        if !page.chips.isEmpty || !keepingChips { chips = page.chips }
+        filter = page.filter
+        continuation = page.continuation
+        shownKey = key
+        state = page.shelves.isEmpty && page.continuation == nil
+            ? .empty(Session.shared.isGuest || !Session.shared.isSignedIn
+                     ? "Sign in to YouTube Music to see your recommendations."
+                     : "Nothing here right now.")
+            : .ready
+        // Some first pages are almost empty; fetch on until there is something to show.
+        if page.shelves.count < 2, page.continuation != nil { Task { await loadMore() } }
     }
 
     private func loadMore() async {
@@ -228,6 +292,14 @@ struct FeedView: View {
             shelves.append(contentsOf: fresh)
             continuation = page.continuation
             if state != .ready, !shelves.isEmpty { state = .ready }
+            // Remember the page as it now stands, so coming back shows everything scrolled
+            // in so far instead of fetching the extra shelves again.
+            if let shownKey, shownKey == wantedKey, let original = Catalog.feeds.cached(shownKey)?.value {
+                var grown = original
+                grown.shelves = shelves
+                grown.continuation = continuation
+                Catalog.feeds.put(grown, for: shownKey)
+            }
         } catch {
             // Leave what we have; the end of the page simply stops growing.
             Log.write("feed: continuation failed — \(error.localizedDescription)")
@@ -285,6 +357,7 @@ private struct FilterMenu: View {
 private struct ChipBar: View {
     let chips: [FeedChip]
     let onSelect: (FeedChip) -> Void
+    var onHover: (FeedChip, Bool) -> Void = { _, _ in }
 
     var body: some View {
         ScrollView(.horizontal) {
@@ -302,6 +375,7 @@ private struct ChipBar: View {
                             .contentShape(Capsule())
                     }
                     .buttonStyle(.plain)
+                    .onHover { onHover(chip, $0) }
                 }
             }
             .padding(.horizontal, Theme.pageInset)
