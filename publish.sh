@@ -15,7 +15,7 @@ cd "$(dirname "$0")"
 VERSION="${1:?usage: ./publish.sh <version> <notes.md>}"
 NOTES="${2:?usage: ./publish.sh <version> <notes.md>}"
 TAG="v$VERSION"
-PUBLIC="emonsaqibh/music-for-youtube-releases"
+PUBLIC_REPO="emonsaqibh/music-for-youtube-releases"
 APP="releases/$VERSION/Music for YouTube.app"
 ASSET="Music-for-YouTube.zip"
 
@@ -38,8 +38,8 @@ if [ "${PUBLIC:-}" != 1 ]; then
     exit 0
 fi
 
-echo "==> syncing installer to $PUBLIC"
-git clone -q "https://github.com/$PUBLIC.git" "$STAGE/public"
+echo "==> syncing installer to $PUBLIC_REPO"
+git clone -q "https://github.com/$PUBLIC_REPO.git" "$STAGE/public"
 cp install.sh "$STAGE/public/install.sh"
 cp distribution/README.md "$STAGE/public/README.md"
 if [ -n "$(git -C "$STAGE/public" status --porcelain)" ]; then
@@ -49,6 +49,6 @@ if [ -n "$(git -C "$STAGE/public" status --porcelain)" ]; then
 fi
 
 echo "==> public release"
-gh release create "$TAG" "$STAGE/$ASSET" --repo "$PUBLIC" --target main --latest \
+gh release create "$TAG" "$STAGE/$ASSET" --repo "$PUBLIC_REPO" --target main --latest \
     --title "Music for YouTube $VERSION" --notes-file "$NOTES"
 echo "==> published $VERSION"
