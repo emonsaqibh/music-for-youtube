@@ -32,7 +32,7 @@ fi
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
 
-say "Downloading $APP_NAME…"
+say "Downloading ${APP_NAME}…"
 curl -fL --progress-bar "$URL" -o "$TMP/$ASSET" || fail "couldn't download $URL"
 ditto -x -k "$TMP/$ASSET" "$TMP/unzipped"
 APP="$TMP/unzipped/$APP_NAME.app"
