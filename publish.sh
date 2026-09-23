@@ -4,7 +4,8 @@
 #   ./publish.sh 0.2.0-beta.2 notes.md
 #
 # - tags the current commit v<version> and pushes it,
-# - creates the GitHub pre-release with the app zipped. The repo is public: install.sh
+# - creates the GitHub release with the app zipped — a pre-release for x.y.z-suffix
+#   versions, the Latest release for a stable x.y.z. The repo is public: install.sh
 #   and the in-app updater pick the newest release from here.
 set -euo pipefail
 cd "$(dirname "$0")"
@@ -26,8 +27,14 @@ echo "==> tagging $TAG"
 git tag -a "$TAG" -m "$VERSION"
 git push -q origin HEAD "$TAG"
 
-echo "==> release"
-gh release create "$TAG" "$STAGE/$ASSET" --verify-tag --prerelease --title "$VERSION" --notes-file "$NOTES"
+# Versions with a suffix (0.2.0-beta.5) are pre-releases; a plain x.y.z is a stable release
+# and becomes the repo's Latest.
+case "$VERSION" in
+    *-*) KIND=(--prerelease) ;;
+    *)   KIND=(--latest) ;;
+esac
+echo "==> release (${KIND[0]#--})"
+gh release create "$TAG" "$STAGE/$ASSET" --verify-tag "${KIND[@]}" --title "$VERSION" --notes-file "$NOTES"
 
 # The release is useless without its zip (install.sh and the updater both need it), and
 # gh has returned success with the asset missing — so confirm it's really there.
