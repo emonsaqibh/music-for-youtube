@@ -240,7 +240,10 @@ attached to every page (`withPlayerPill()` in `RootView.swift`). Don't move it b
 SF Symbols (`NavItem.symbol`; Explore is a compass, `safari`), a filled accent capsule
 with white text for the selection, 13pt grey section headers. Charts is added after
 Explore (`Router.primaryItems`, `Guide.charts`). The Library section only appears when
-there is one: signed out it is replaced by a sign-in prompt, and in guest mode it is gone.
+there is one: signed out it is replaced by a sign-in prompt, and in guest mode it is gone. The update card and account row
+live in their own container below the scrolling list (not a safe-area inset — rows used to
+scroll underneath the account); the list fades out above it. The Playlists header folds its
+section (`sidebar.playlistsCollapsed`).
 
 **Sign-in happens in the default browser** (user's choice) — every Sign In calls
 `SignIn.start()` (`UI/BrowserSignIn.swift`). If the default browser is supported (Safari

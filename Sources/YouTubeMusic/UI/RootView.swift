@@ -77,6 +77,8 @@ private extension View {
 /// selection, and headers set in from the rows.
 struct SidebarView: View {
     @Environment(Router.self) private var router
+    /// The playlists section can be folded away; remembered across launches.
+    @AppStorage("sidebar.playlistsCollapsed") private var playlistsCollapsed = false
 
     private var session: Session { .shared }
 
@@ -87,6 +89,23 @@ struct SidebarView: View {
     }
 
     var body: some View {
+        // The list scrolls on its own; the update card and account row sit in their own
+        // container underneath it, so rows never slide beneath the account.
+        VStack(spacing: 0) {
+            list
+            VStack(spacing: 0) {
+                UpdateCard()
+                AccountRow()
+            }
+            .padding(.top, 4)
+            .animation(.easeInOut(duration: 0.25), value: Updater.shared.offersUpdate)
+        }
+        .animation(.easeInOut(duration: 0.2), value: router.guide)
+        .animation(.easeInOut(duration: 0.2), value: router.playlists)
+        .animation(.easeInOut(duration: 0.2), value: hasLibrary)
+    }
+
+    private var list: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
                 SidebarRow(item: .search, title: "Search", symbol: "magnifyingglass")
@@ -111,19 +130,18 @@ struct SidebarView: View {
             }
             .padding(.horizontal, 10)
             .padding(.top, 8)
-            .padding(.bottom, 12)
+            .padding(.bottom, 16)
         }
         .scrollIndicators(.never)
-        .safeAreaInset(edge: .bottom, spacing: 0) {
+        // A short fade where the list meets the account container, so rows ease out
+        // rather than being cut off.
+        .mask {
             VStack(spacing: 0) {
-                UpdateCard()
-                AccountRow()
+                Color.black
+                LinearGradient(colors: [.black, .clear], startPoint: .top, endPoint: .bottom)
+                    .frame(height: 16)
             }
-            .animation(.easeInOut(duration: 0.25), value: Updater.shared.offersUpdate)
         }
-        .animation(.easeInOut(duration: 0.2), value: router.guide)
-        .animation(.easeInOut(duration: 0.2), value: router.playlists)
-        .animation(.easeInOut(duration: 0.2), value: hasLibrary)
     }
 
     @ViewBuilder
@@ -131,18 +149,22 @@ struct SidebarView: View {
         if !AppSettings.shared.showsPlaylistsInSidebar {
             EmptyView()
         } else if !router.playlists.isEmpty {
-            SidebarHeader(title: playlistsHeader)
-            ForEach(router.playlists) { card in
-                SidebarRow(item: .playlist(id: card.playlistRouteId, title: card.title),
-                           title: card.title,
-                           artwork: card.artwork)
+            SidebarHeader(title: playlistsHeader, isCollapsed: $playlistsCollapsed)
+            if !playlistsCollapsed {
+                ForEach(router.playlists) { card in
+                    SidebarRow(item: .playlist(id: card.playlistRouteId, title: card.title),
+                               title: card.title,
+                               artwork: card.artwork)
+                }
             }
         } else if !router.guide.playlists.isEmpty {
             // Saved playlists did not load, but the guide lists some — use those.
-            SidebarHeader(title: playlistsHeader)
-            ForEach(router.guide.playlists) { item in
-                SidebarRow(item: .playlist(id: String(item.browseId.dropFirst(2)), title: item.title),
-                           title: item.title, symbol: item.symbol)
+            SidebarHeader(title: playlistsHeader, isCollapsed: $playlistsCollapsed)
+            if !playlistsCollapsed {
+                ForEach(router.guide.playlists) { item in
+                    SidebarRow(item: .playlist(id: String(item.browseId.dropFirst(2)), title: item.title),
+                               title: item.title, symbol: item.symbol)
+                }
             }
         }
     }
@@ -162,16 +184,39 @@ private extension Card {
 }
 
 /// A section title: small, bold and grey, set in a little from the rows' icons.
+/// A section title: small, bold and grey, set in a little from the rows' icons. Given a
+/// binding, the whole header folds its section away, with a chevron showing which way.
 private struct SidebarHeader: View {
     let title: String
+    var isCollapsed: Binding<Bool>?
+
+    @State private var hovering = false
 
     var body: some View {
-        Text(title)
-            .font(.system(size: 13, weight: .semibold))
-            .foregroundStyle(.secondary)
-            .padding(.leading, 6)
-            .padding(.top, 18)
-            .padding(.bottom, 6)
+        HStack(spacing: 4) {
+            Text(title)
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(.secondary)
+            Spacer(minLength: 0)
+            if let isCollapsed {
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 10, weight: .bold))
+                    .foregroundStyle(.secondary)
+                    .rotationEffect(.degrees(isCollapsed.wrappedValue ? 0 : 90))
+                    .opacity(hovering || isCollapsed.wrappedValue ? 1 : 0.45)
+                    .padding(.trailing, 8)
+            }
+        }
+        .padding(.leading, 6)
+        .padding(.top, 18)
+        .padding(.bottom, 6)
+        .contentShape(Rectangle())
+        .onHover { hovering = $0 }
+        .onTapGesture {
+            guard let isCollapsed else { return }
+            withAnimation(.easeInOut(duration: 0.22)) { isCollapsed.wrappedValue.toggle() }
+        }
+        .help(isCollapsed.map { $0.wrappedValue ? "Show \(title)" : "Hide \(title)" } ?? "")
     }
 }
 
