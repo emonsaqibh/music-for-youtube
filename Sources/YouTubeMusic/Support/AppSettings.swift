@@ -67,6 +67,10 @@ final class AppSettings {
     var colorScheme: ColorSchemeChoice { didSet { save(colorScheme.rawValue, Keys.colorScheme); applyAppearance() } }
     var accent: AccentChoice { didSet { save(accent.rawValue, Keys.accent) } }
     var fullScreenBackground: FullScreenBackground { didSet { save(fullScreenBackground.rawValue, Keys.fullScreenBackground) } }
+    /// How soft the Artwork colours background is: 0 (defined patches of colour) to 3
+    /// (a dreamy wash).
+    var artworkBlur: Int { didSet { save(artworkBlur, Keys.artworkBlur) } }
+    static let artworkBlurRadii: [CGFloat] = [0, 24, 50, 90]
     var lyricsSize: LyricsSize { didSet { save(lyricsSize.rawValue, Keys.lyricsSize) } }
     /// The full-screen player opens with lyrics beside the artwork.
     var fullScreenShowsLyrics: Bool { didSet { save(fullScreenShowsLyrics, Keys.fullScreenShowsLyrics) } }
@@ -119,6 +123,7 @@ final class AppSettings {
             d.set(background.rawValue, forKey: Keys.fullScreenBackground)
         }
         fullScreenBackground = background
+        artworkBlur = min(max(d.object(forKey: Keys.artworkBlur) as? Int ?? 1, 0), Self.artworkBlurRadii.count - 1)
         lyricsSize = LyricsSize(rawValue: d.string(forKey: Keys.lyricsSize) ?? "") ?? .medium
         fullScreenShowsLyrics = d.object(forKey: Keys.fullScreenShowsLyrics) as? Bool ?? true
         showsPlaylistsInSidebar = d.object(forKey: Keys.showsPlaylistsInSidebar) as? Bool ?? true
@@ -146,6 +151,7 @@ final class AppSettings {
         colorScheme = .system
         accent = .red
         fullScreenBackground = .colors
+        artworkBlur = 1
         lyricsSize = .medium
         fullScreenShowsLyrics = true
         showsPlaylistsInSidebar = true
@@ -160,6 +166,7 @@ final class AppSettings {
         static let accent = "settings.accent"
         static let fullScreenBackground = "settings.fullScreenBackground"
         static let artworkColorsMigrated = "settings.fullScreenBackground.artworkColorsMigrated"
+        static let artworkBlur = "settings.artworkBlur"
         static let lyricsSize = "settings.lyricsSize"
         static let fullScreenShowsLyrics = "settings.fullScreenShowsLyrics"
         static let showsPlaylistsInSidebar = "settings.showsPlaylistsInSidebar"

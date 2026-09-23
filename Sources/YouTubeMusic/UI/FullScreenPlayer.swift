@@ -263,7 +263,8 @@ private struct AmbientBackground: View {
                 fallback
 
                 if style == .colors, palette.count >= 3 {
-                    ArtworkColorsBackground(colors: palette)
+                    ArtworkColorsBackground(colors: palette,
+                                            blur: AppSettings.artworkBlurRadii[AppSettings.shared.artworkBlur])
                         // A new song's colours cross-fade in over the old ones.
                         .id(palette)
                         .transition(.opacity)
@@ -326,42 +327,62 @@ private struct AmbientBackground: View {
 }
 
 /// Music.app's full-screen background: the artwork's own colours flowing slowly into one
-/// another. A 3×3 mesh gradient whose inner points drift on out-of-step sine waves (30–60s
-/// periods), so the motion never visibly repeats. Rendered by the GPU; with Reduce Motion
-/// on, it holds still.
+/// another. A 4×4 mesh gradient whose points drift on out-of-step sine waves (30–60s
+/// periods), so the motion never visibly repeats, softened by the blur chosen in Settings.
+/// Rendered by the GPU; with Reduce Motion on, it holds still.
 private struct ArtworkColorsBackground: View {
     let colors: [Color]
+    var blur: CGFloat = 0
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
+    /// The field is drawn at a quarter of the window's size and scaled up: it has no fine
+    /// detail to lose, and blurring a small image each frame costs a fraction of blurring
+    /// the whole window.
+    private let downscale: CGFloat = 4
+
     var body: some View {
-        TimelineView(.animation(minimumInterval: 1 / 30, paused: reduceMotion)) { context in
-            MeshGradient(width: 3, height: 3,
-                         points: points(at: context.date.timeIntervalSinceReferenceDate),
-                         colors: meshColors,
-                         smoothsColors: true)
+        GeometryReader { geo in
+            // The drift is slow (a ~40s cycle), so 15fps is indistinguishable from 30.
+            TimelineView(.animation(minimumInterval: 1 / 15, paused: reduceMotion)) { context in
+                MeshGradient(width: 4, height: 4,
+                             points: points(at: context.date.timeIntervalSinceReferenceDate),
+                             colors: meshColors,
+                             smoothsColors: true)
+            }
+            .frame(width: geo.size.width / downscale, height: geo.size.height / downscale)
+            // Opaque, so the blur doesn't fade the edges of the window to transparent.
+            .blur(radius: blur / downscale, opaque: true)
+            .drawingGroup()
+            .scaleEffect(downscale, anchor: .topLeading)
+            .animation(.easeInOut(duration: 0.4), value: blur)
         }
     }
 
-    /// Corners stay put, edge points slide along their edge, the centre wanders freely.
+    /// Corners stay put, edge points slide along their edge, inner points wander.
     private func points(at t: Double) -> [SIMD2<Float>] {
-        func wave(_ period: Double, _ phase: Double, _ amplitude: Double) -> Float {
-            Float(0.5 + sin(t * 2 * .pi / period + phase) * amplitude)
+        func wave(_ base: Double, _ period: Double, _ phase: Double, _ amplitude: Double) -> Float {
+            Float(base + sin(t * 2 * .pi / period + phase) * amplitude)
         }
+        let a = 1.0 / 3, b = 2.0 / 3
         return [
-            [0, 0], [wave(47, 0.0, 0.22), 0], [1, 0],
-            [0, wave(53, 1.3, 0.2)], [wave(37, 2.1, 0.24), wave(43, 0.7, 0.24)], [1, wave(59, 2.9, 0.2)],
-            [0, 1], [wave(41, 4.2, 0.22), 1], [1, 1],
+            [0, 0], [wave(a, 47, 0.0, 0.1), 0], [wave(b, 53, 1.1, 0.1), 0], [1, 0],
+            [0, wave(a, 43, 2.3, 0.1)], [wave(a, 37, 0.4, 0.13), wave(a, 41, 3.1, 0.13)],
+            [wave(b, 59, 1.7, 0.13), wave(a, 39, 4.4, 0.13)], [1, wave(a, 51, 5.0, 0.1)],
+            [0, wave(b, 57, 3.6, 0.1)], [wave(a, 45, 2.8, 0.13), wave(b, 49, 0.9, 0.13)],
+            [wave(b, 38, 5.5, 0.13), wave(b, 55, 1.9, 0.13)], [1, wave(b, 46, 4.1, 0.1)],
+            [0, 1], [wave(a, 50, 3.3, 0.1), 1], [wave(b, 42, 0.6, 0.1), 1], [1, 1],
         ]
     }
 
-    /// The most prominent colour takes the centre and one corner; the rest spread around
-    /// so neighbouring patches differ.
+    /// The most prominent colour takes the middle; the rest spread round so neighbouring
+    /// patches differ.
     private var meshColors: [Color] {
         let c = colors
         func at(_ i: Int) -> Color { c[i % c.count] }
-        return [at(1), at(2), at(3),
-                at(4), at(0), at(1),
-                at(0), at(3), at(2)]
+        return [at(1), at(2), at(3), at(4),
+                at(3), at(0), at(0), at(1),
+                at(4), at(0), at(0), at(2),
+                at(2), at(1), at(4), at(3)]
     }
 }

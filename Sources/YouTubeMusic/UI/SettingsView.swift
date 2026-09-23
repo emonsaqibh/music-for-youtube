@@ -96,6 +96,17 @@ private struct AppearancePane: View {
                 Picker("Background", selection: $settings.fullScreenBackground) {
                     ForEach(AppSettings.FullScreenBackground.allCases) { Text($0.label).tag($0) }
                 }
+                if settings.fullScreenBackground == .colors {
+                    Slider(value: Binding(get: { Double(settings.artworkBlur) },
+                                          set: { settings.artworkBlur = Int($0.rounded()) }),
+                           in: 0...Double(AppSettings.artworkBlurRadii.count - 1), step: 1) {
+                        Text("Blur")
+                    } minimumValueLabel: {
+                        Text("Less").font(.system(size: 11)).foregroundStyle(.secondary)
+                    } maximumValueLabel: {
+                        Text("More").font(.system(size: 11)).foregroundStyle(.secondary)
+                    }
+                }
                 Toggle("Open with lyrics showing", isOn: $settings.fullScreenShowsLyrics)
             }
 
