@@ -330,6 +330,23 @@ also decrypts all of Chrome's cookies and saved passwords, so the prompt asks fo
 `unlock` logs the OSStatus as `chromium-keychain: …`. Test only with a normal launch; a
 terminal launch hides the bug.
 
+**Player display frozen while music plays — fixed.** `PlayerController.attach()` (which
+points `WebEngine.onEvent` at the player) used to run only from the main window's `.task`.
+A relaunch that restores just the mini player never opened the main window, so the page's
+ticks reached no one: audio played, next/previous worked, but time, seek bar and
+play/pause stood still. `attach()` now runs once at launch (AppDelegate) and is
+idempotent. Also: Engine Diagnostics used to *replace* `onEvent` (same freeze); it now
+uses `WebEngine.eventTap`, which sees events after the player. Diagnosis switches:
+`YTM_TRACE_TICKS=1` logs every page tick and every snapshot the player applies;
+`YTM_SIGNED_IN=1` runs `--demo`/`--selftest` on the real account instead of an ephemeral
+store (use sparingly — two copies playing on one account can pause each other).
+
+**Search in the sidebar, ⌘K.** The sidebar's first entry is a search field
+(`SidebarSearchField`) bound to `router.searchText`; focusing or typing opens the Search
+page, which searches as you type (Return = now, via `router.searchSubmitted`). The Search
+page has no field of its own any more. Edit › Search (⌘K) opens the main window and
+focuses the field (`Notification.Name.focusSearch` → `Router.focusSearch()`).
+
 ## 4. Next
 
 - Advanced features: library mutation (like / add to playlist), search continuations,

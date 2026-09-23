@@ -198,6 +198,8 @@ struct MenuBarPlayer: View {
 extension Notification.Name {
     /// Asks the main window to open its full-screen player.
     static let showFullScreenPlayer = Notification.Name("showFullScreenPlayer")
+    /// ⌘K: bring up Search with the cursor in the sidebar field.
+    static let focusSearch = Notification.Name("focusSearch")
 }
 
 /// The account chip in the menu bar panel's footer: who you are listening as, and a menu

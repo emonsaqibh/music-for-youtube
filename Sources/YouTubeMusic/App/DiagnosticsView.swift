@@ -21,6 +21,7 @@ struct DiagnosticsView: View {
         }
         .padding(20)
         .task { await boot() }
+        .onDisappear { WebEngine.shared.eventTap = nil }
     }
 
     private var controls: some View {
@@ -56,7 +57,8 @@ struct DiagnosticsView: View {
     // MARK: Actions
 
     private func boot() async {
-        WebEngine.shared.onEvent = { event in
+        // A tap, not `onEvent` — taking that one would cut the player off from the page.
+        WebEngine.shared.eventTap = { event in
             switch event {
             case .snapshot(let s):
                 snapshot = s

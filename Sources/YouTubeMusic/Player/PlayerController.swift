@@ -96,7 +96,14 @@ final class PlayerController {
 
     private init() {}
 
+    @ObservationIgnored private var attached = false
+
+    /// Connects the player to the engine's events. Called once at launch — not from the
+    /// main window, which may not open at all (a relaunch can restore only the mini
+    /// player); without it the music plays but every display of it stands still.
     func attach() {
+        guard !attached else { return }
+        attached = true
         engine.onEvent = { [weak self] event in self?.handle(event) }
         engine.start()
         NowPlaying.shared.install()
@@ -422,7 +429,13 @@ final class PlayerController {
         }
     }
 
+    private static let traces = ProcessInfo.processInfo.environment["YTM_TRACE_TICKS"] == "1"
+
     private func apply(_ snapshot: PlayerSnapshot) {
+        if Self.traces {
+            Log.write("trace apply: ok=\(snapshot.ok) state=\(snapshot.state) time=\(Int(snapshot.time)) "
+                      + "current=\(current?.id ?? "nil") isPlaying(before)=\(isPlaying)")
+        }
         guard snapshot.ok else { return }
 
         isPlaying = snapshot.isPlaying

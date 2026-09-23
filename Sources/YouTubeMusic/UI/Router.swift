@@ -43,6 +43,16 @@ final class Router {
     var selection: SidebarItem
     var path: [Route] = []
     var searchText = ""
+    /// Bumped to put the cursor in the sidebar's search field (⌘K).
+    var searchFocusRequest = 0
+    /// Bumped when Return is pressed in the search field: search now, not after the pause.
+    var searchSubmitted = 0
+
+    /// ⌘K: show Search and put the cursor in the sidebar field.
+    func focusSearch() {
+        if selection.key != SidebarItem.search.key { select(.search) }
+        searchFocusRequest += 1
+    }
     var panel: SidePanel? = DemoMode.opensLyrics ? .lyrics : DemoMode.opensQueue ? .queue : nil
     var showFullScreenPlayer = DemoMode.opensFullScreen
 

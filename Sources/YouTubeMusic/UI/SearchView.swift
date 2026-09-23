@@ -8,14 +8,16 @@ struct SearchView: View {
     @State private var shelves: [Shelf] = []
     @State private var state: LoadState = .empty("Search for songs, albums, artists and playlists.")
     @State private var task: Task<Void, Never>?
-    @FocusState private var focused: Bool
 
     var body: some View {
         @Bindable var router = router
 
-        VStack(spacing: 0) {
-            field(text: $router.searchText)
+        // The query is typed in the sidebar's search field (⌘K); this page shows the
+        // filters and the results.
+        VStack(alignment: .leading, spacing: 0) {
+            PageTitle(text: "Search")
             filters
+                .padding(.top, 8)
             Divider().opacity(0.5)
 
             ScrollView {
@@ -34,38 +36,12 @@ struct SearchView: View {
             }
             .overlay { StateOverlay(state: state) }
         }
-        .onAppear { focused = true }
-    }
-
-    private func field(text: Binding<String>) -> some View {
-        HStack(spacing: 8) {
-            Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
-            TextField("Search YouTube Music", text: text)
-                .textFieldStyle(.plain)
-                .font(.system(size: 15))
-                .focused($focused)
-                .onSubmit { schedule(immediate: true) }
-                .onChange(of: text.wrappedValue) { _, _ in schedule() }
-            if !text.wrappedValue.isEmpty {
-                Button {
-                    text.wrappedValue = ""
-                    shelves = []
-                    state = .empty("Search for songs, albums, artists and playlists.")
-                } label: {
-                    Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary)
-                }
-                .buttonStyle(.plain)
-            }
+        .onAppear {
+            if !router.searchText.isEmpty && shelves.isEmpty { schedule(immediate: true) }
+            router.searchFocusRequest += 1
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 9)
-        .background {
-            RoundedRectangle(cornerRadius: 9, style: .continuous)
-                .fill(.quaternary.opacity(0.55))
-        }
-        .padding(.horizontal, Theme.pageInset)
-        .padding(.top, 14)
-        .padding(.bottom, 10)
+        .onChange(of: router.searchText) { _, _ in schedule() }
+        .onChange(of: router.searchSubmitted) { _, _ in schedule(immediate: true) }
     }
 
     private var filters: some View {

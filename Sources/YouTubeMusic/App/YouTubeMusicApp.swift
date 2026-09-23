@@ -91,6 +91,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             return
         }
         NSApp.activate(ignoringOtherApps: true)
+        PlayerController.shared.attach()
         if DemoMode.isRequested {
             Task { await DemoMode.start() }
             if Updater.isDemoing { Task { await Updater.shared.check() } }
@@ -110,6 +111,16 @@ struct PlaybackCommands: Commands {
 
     var body: some Commands {
         CommandGroup(replacing: .newItem) {}
+
+        CommandGroup(after: .textEditing) {
+            Button("Search") {
+                // The main window may be closed; open it, then focus its search field.
+                openWindow(id: WindowID.main)
+                NSApp.activate()
+                NotificationCenter.default.post(name: .focusSearch, object: nil)
+            }
+            .keyboardShortcut("k", modifiers: .command)
+        }
 
         CommandGroup(after: .appInfo) {
             Button("Check for Updates…") { UpdateCommand.checkNow() }

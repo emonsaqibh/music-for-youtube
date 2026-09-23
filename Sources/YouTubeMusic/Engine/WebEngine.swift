@@ -90,7 +90,17 @@ final class WebEngine: NSObject {
 
     /// Replaced when the profile switches — a web view's cookie store is fixed at creation.
     private(set) var webView: WKWebView
+    /// The player's handler — the one consumer that drives playback state.
     var onEvent: ((BridgeEvent) -> Void)?
+    /// An extra listener (Engine Diagnostics) that sees every event after the player. It
+    /// must never take `onEvent`: that silently freezes the player's time, seek bar and
+    /// play/pause icon while the music keeps going.
+    var eventTap: ((BridgeEvent) -> Void)?
+
+    private func emit(_ event: BridgeEvent) {
+        onEvent?(event)
+        eventTap?(event)
+    }
 
     private(set) var isBound = false
     private(set) var currentURL: URL?
@@ -163,7 +173,10 @@ final class WebEngine: NSObject {
     /// looks like bot activity. `--probe-nav` is deliberately excluded: it exists to inspect
     /// the *signed-in* account, so it stays on the real store.
     static var usesEphemeralSession: Bool {
-        SelfTest.isRequested || PlaybackProbe.isRequested || DemoMode.isRequested
+        (SelfTest.isRequested || PlaybackProbe.isRequested || DemoMode.isRequested)
+            // `YTM_SIGNED_IN=1` runs these with the real account — signed-in accounts can get
+            // a different web-player build, which the signed-out runs never see.
+            && ProcessInfo.processInfo.environment["YTM_SIGNED_IN"] != "1"
     }
 
     private func makeWebView(for profile: Session.Profile) -> WKWebView {
@@ -382,30 +395,38 @@ extension WebEngine: WKScriptMessageHandler {
         }
     }
 
+    /// `YTM_TRACE_TICKS=1` logs every snapshot the page sends — for diagnosing a player
+    /// display that stops following playback.
+    private static let tracesTicks = ProcessInfo.processInfo.environment["YTM_TRACE_TICKS"] == "1"
+
     private func handle(type: String, payload: [String: Any]) {
         switch type {
         case "injected":
             if let signedIn = payload["signedIn"] as? Bool { Session.shared.pageReported(signedIn: signedIn) }
-            onEvent?(.injected(url: payload["href"] as? String ?? "", signedIn: isSignedIn))
+            emit(.injected(url: payload["href"] as? String ?? "", signedIn: isSignedIn))
 
         case "ready":
             isBound = true
             if let signedIn = payload["signedIn"] as? Bool { Session.shared.pageReported(signedIn: signedIn) }
             let snap = PlayerSnapshot(payload["snapshot"] as? [String: Any] ?? [:])
-            onEvent?(.ready(signedIn: isSignedIn, snapshot: snap))
+            emit(.ready(signedIn: isSignedIn, snapshot: snap))
 
         case "state", "tick":
-            onEvent?(.snapshot(PlayerSnapshot(payload)))
+            if Self.tracesTicks {
+                Log.write("trace \(type): ok=\(payload["ok"] ?? "-") state=\(payload["state"] ?? "-") "
+                          + "time=\(payload["time"] ?? "-") id=\(payload["videoId"] ?? "-")")
+            }
+            emit(.snapshot(PlayerSnapshot(payload)))
 
         case "remote":
-            onEvent?(.remote(action: payload["action"] as? String ?? "",
+            emit(.remote(action: payload["action"] as? String ?? "",
                              time: (payload["time"] as? NSNumber)?.doubleValue))
 
         case "error":
-            onEvent?(.playerError(code: (payload["code"] as? NSNumber)?.intValue ?? 0))
+            emit(.playerError(code: (payload["code"] as? NSNumber)?.intValue ?? 0))
 
         case "log":
-            onEvent?(.log(payload["text"] as? String ?? ""))
+            emit(.log(payload["text"] as? String ?? ""))
 
         default:
             break
@@ -427,11 +448,11 @@ extension WebEngine: WKNavigationDelegate {
     }
 
     func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: any Error) {
-        onEvent?(.log("navigation failed: \(error.localizedDescription)"))
+        emit(.log("navigation failed: \(error.localizedDescription)"))
     }
 
     func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!,
                  withError error: any Error) {
-        onEvent?(.log("navigation failed: \(error.localizedDescription)"))
+        emit(.log("navigation failed: \(error.localizedDescription)"))
     }
 }

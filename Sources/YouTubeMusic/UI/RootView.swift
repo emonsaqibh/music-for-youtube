@@ -42,6 +42,10 @@ struct RootView: View {
             await WebEngine.shared.waitUntilReady()
             await router.loadNavigation()
         }
+        .onReceive(NotificationCenter.default.publisher(for: .focusSearch)) { _ in
+            router.showFullScreenPlayer = false
+            router.focusSearch()
+        }
         .onReceive(NotificationCenter.default.publisher(for: .showFullScreenPlayer)) { _ in
             if player.hasTrack { router.showFullScreenPlayer = true }
         }
@@ -108,7 +112,8 @@ struct SidebarView: View {
     private var list: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
-                SidebarRow(item: .search, title: "Search", symbol: "magnifyingglass")
+                SidebarSearchField()
+                    .padding(.bottom, 6)
                 ForEach(router.primaryItems) { item in
                     SidebarRow(item: .feed(item), title: item.title, symbol: item.symbol)
                 }
@@ -184,6 +189,70 @@ private extension Card {
 }
 
 /// A section title: small, bold and grey, set in a little from the rows' icons.
+/// Search, typed straight into the sidebar as in Music.app: focusing or typing opens the
+/// Search page, which updates as you type (Return searches at once). ⌘K lands here.
+private struct SidebarSearchField: View {
+    @Environment(Router.self) private var router
+    @FocusState private var focused: Bool
+
+    var body: some View {
+        @Bindable var router = router
+
+        HStack(spacing: 7) {
+            Image(systemName: "magnifyingglass")
+                .font(.system(size: 13, weight: .medium))
+                .foregroundStyle(focused ? Theme.accent : .secondary)
+            TextField("Search", text: $router.searchText)
+                .textFieldStyle(.plain)
+                .font(.system(size: 14))
+                .focused($focused)
+                .onSubmit {
+                    router.focusSearch()
+                    router.searchSubmitted += 1
+                }
+            if !router.searchText.isEmpty {
+                Button {
+                    router.searchText = ""
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.system(size: 12))
+                        .foregroundStyle(.secondary)
+                }
+                .buttonStyle(.plain)
+                .help("Clear")
+            } else if !focused {
+                Text("⌘K")
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(.tertiary)
+            }
+        }
+        .padding(.horizontal, 10)
+        .frame(height: 32)
+        .background {
+            RoundedRectangle(cornerRadius: 9, style: .continuous)
+                .fill(Color.primary.opacity(focused ? 0.1 : 0.06))
+        }
+        .overlay {
+            RoundedRectangle(cornerRadius: 9, style: .continuous)
+                .strokeBorder(Theme.accent.opacity(focused ? 0.55 : 0), lineWidth: 1.5)
+        }
+        .contentShape(Rectangle())
+        .onTapGesture { focused = true }
+        .onChange(of: focused) { _, isFocused in
+            if isFocused, router.selection.key != SidebarItem.search.key { router.select(.search) }
+        }
+        .onChange(of: router.searchText) { _, text in
+            if !text.isEmpty, router.selection.key != SidebarItem.search.key { router.select(.search) }
+        }
+        .onChange(of: router.searchFocusRequest) { _, _ in focused = true }
+        // Picking another page lets go of the field, so its focus ring doesn't linger.
+        .onChange(of: router.selection.key) { _, key in
+            if key != SidebarItem.search.key { focused = false }
+        }
+        .animation(.easeOut(duration: 0.15), value: focused)
+    }
+}
+
 /// A section title: small, bold and grey, set in a little from the rows' icons. Given a
 /// binding, the whole header folds its section away, with a chevron showing which way.
 private struct SidebarHeader: View {
