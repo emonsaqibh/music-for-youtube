@@ -71,8 +71,9 @@ Modelled on Music.app on macOS 26 rather than on an older Apple Music:
 ## Build and run
 
 ```sh
-./build.sh          # → build/Music for YouTube.app
-./run.sh            # build, then launch
+./build.sh          # → build/Music for YouTube Dev.app
+./run.sh            # build, then launch (dev build)
+./release.sh 0.1.0-beta.2   # freeze a beta → releases/ + /Applications
 ```
 
 Requires Xcode 26 and macOS 26+. The app is ad-hoc signed and unsandboxed, so it runs
@@ -106,19 +107,19 @@ injected bridge forwards the page's Media Session actions back to the native pla
 
 ## Debugging
 
-The app logs to `~/Library/Logs/MusicForYouTube/app.log`, and **Help → Engine
+The app logs to `~/Library/Logs/MusicForYouTube-Dev/app.log`, and **Help → Engine
 Diagnostics…** shows live bridge state.
 
 Two headless checks:
 
 ```sh
-"build/Music for YouTube.app/Contents/MacOS/YouTubeMusic" --selftest
+"build/Music for YouTube Dev.app/Contents/MacOS/YouTubeMusic" --selftest
 # search → play → seek → pause → radio queue → Now Playing, then PASS/FAIL
 
-"build/Music for YouTube.app/Contents/MacOS/YouTubeMusic" --probe
+"build/Music for YouTube Dev.app/Contents/MacOS/YouTubeMusic" --probe
 # compares the three ways of starting a track, when playback misbehaves
 
-"build/Music for YouTube.app/Contents/MacOS/YouTubeMusic" --demo
+"build/Music for YouTube Dev.app/Contents/MacOS/YouTubeMusic" --demo
 # launches normally but with a real track playing and the queue open, so the
 # playing-state UI can be inspected without clicking through to it
 #   --no-queue           leave the queue panel closed

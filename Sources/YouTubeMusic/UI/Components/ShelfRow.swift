@@ -112,7 +112,8 @@ struct FeedView: View {
         ScrollView {
             LazyVStack(alignment: .leading, spacing: Theme.shelfGap) {
                 VStack(alignment: .leading, spacing: 14) {
-                    PageTitle(text: title)
+                    PageTitle(text: title,
+                              badge: BuildFlavor.isDev && browseId == "FEmusic_home" ? "DEV" : nil)
                     if !chips.isEmpty {
                         ChipBar(chips: chips) { chip in select(chip) }
                     }

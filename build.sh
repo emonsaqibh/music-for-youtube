@@ -48,8 +48,22 @@ $PB -c "Set :CFBundleIdentifier $BUNDLE_ID" \
     -c "Set :CFBundleVersion $BUILD_NUMBER" \
     "$APP/Contents/Info.plist"
 if [ -d Resources/AppIcon.icon ]; then
+    ICON=Resources/AppIcon.icon
+    if [ "$FLAVOR" = dev ]; then
+        # Same icon with a blue background instead of red, so the dev build is easy to tell
+        # apart in the Dock and app switcher.
+        # (actool only compiles it when the document name matches --app-icon.)
+        ICON=build/dev-icon/AppIcon.icon
+        rm -rf "$ICON" && mkdir -p build/dev-icon && cp -R Resources/AppIcon.icon "$ICON"
+        sed -i '' \
+            -e 's/1.00000,0.38000,0.34000/0.30000,0.62000,1.00000/' \
+            -e 's/0.82000,0.04000,0.26000/0.10000,0.24000,0.82000/' \
+            -e 's/0.34000,0.06000,0.09000/0.06000,0.14000,0.38000/' \
+            -e 's/0.13000,0.02000,0.07000/0.02000,0.05000,0.16000/' \
+            "$ICON/icon.json"
+    fi
     # Icon Composer document → Assets.car (Liquid Glass, dark / tinted / clear) + AppIcon.icns.
-    xcrun actool Resources/AppIcon.icon --compile "$APP/Contents/Resources" \
+    xcrun actool "$ICON" --compile "$APP/Contents/Resources" \
         --app-icon AppIcon --platform macosx --minimum-deployment-target 26.0 \
         --target-device mac --output-partial-info-plist "build/icon-partial.plist" >/dev/null
 elif [ -f Resources/AppIcon.icns ]; then

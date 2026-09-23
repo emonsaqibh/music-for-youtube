@@ -10,10 +10,8 @@ enum Log {
     private static let queue = DispatchQueue(label: "dev.fringecore.ytmusic.log")
 
     static let fileURL: URL = {
-        // The dev build runs alongside the installed beta, so it keeps a log of its own.
-        let isDev = Bundle.main.bundleIdentifier?.hasSuffix(".dev") == true
         let dir = FileManager.default.homeDirectoryForCurrentUser
-            .appending(path: "Library/Logs/MusicForYouTube\(isDev ? "-Dev" : "")", directoryHint: .isDirectory)
+            .appending(path: "Library/Logs/MusicForYouTube\(BuildFlavor.isDev ? "-Dev" : "")", directoryHint: .isDirectory)
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         return dir.appending(path: "app.log")
     }()

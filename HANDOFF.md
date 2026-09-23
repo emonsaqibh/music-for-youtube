@@ -34,19 +34,37 @@ importantly for task 2 below — the `guide` endpoint returns only three entries
 
 **Re-run `--probe-nav` once signed in.** Several of the shapes recorded below will grow.
 
+### Dev build vs. beta
+
+There are two builds with different bundle IDs, so their sign-in, settings and logs are
+kept apart and both can run at once:
+
+| | Dev | Beta |
+|---|---|---|
+| Built by | `./build.sh` / `./run.sh` | `./release.sh <version>` |
+| Bundle | `build/Music for YouTube Dev.app` | `/Applications/Music for YouTube.app` (+ `releases/<version>/`) |
+| Bundle ID | `dev.fringecore.ytmusic.dev` | `dev.fringecore.ytmusic` |
+| Logs | `~/Library/Logs/MusicForYouTube-Dev/` | `~/Library/Logs/MusicForYouTube/` |
+| Looks | blue icon (recoloured copy made by `build.sh`), **DEV** badge on Home | red icon, no badge |
+
+All development and testing uses the **dev** build. A release is frozen: `release.sh`
+builds in release config, saves the app and a `source.tar.gz` snapshot under
+`releases/<version>/`, installs it to `/Applications`, and refuses to reuse a version.
+Current beta: **0.1.0-beta.1** (2026-09-23).
+
 ### Launch flags
 
 ```sh
-./build.sh      # → build/Music for YouTube.app
+./build.sh      # → build/Music for YouTube Dev.app
 ./run.sh        # build + launch
 
-"build/Music for YouTube.app/Contents/MacOS/YouTubeMusic" --selftest    # engine PASS/FAIL
-"build/Music for YouTube.app/Contents/MacOS/YouTubeMusic" --probe       # playback strategies
-"build/Music for YouTube.app/Contents/MacOS/YouTubeMusic" --probe-nav   # dumps nav + lyrics JSON
-"build/Music for YouTube.app/Contents/MacOS/YouTubeMusic" --demo        # launches with a track playing
+"build/Music for YouTube Dev.app/Contents/MacOS/YouTubeMusic" --selftest    # engine PASS/FAIL
+"build/Music for YouTube Dev.app/Contents/MacOS/YouTubeMusic" --probe       # playback strategies
+"build/Music for YouTube Dev.app/Contents/MacOS/YouTubeMusic" --probe-nav   # dumps nav + lyrics JSON
+"build/Music for YouTube Dev.app/Contents/MacOS/YouTubeMusic" --demo        # launches with a track playing
 ```
 
-`--probe-nav` writes raw responses to `~/Library/Logs/MusicForYouTube/*.json`. That is the
+`--probe-nav` writes raw responses to `~/Library/Logs/MusicForYouTube-Dev/*.json`. That is the
 tool for both tasks below — use it rather than guessing at renderer shapes.
 
 ### Load-bearing quirks (documented at length in README)
@@ -140,7 +158,7 @@ sidebar playlists, restore defaults), Appearance (system/light/dark, 9 accents �
 is now dynamic —, full-screen background moving/still/solid, open with lyrics, lyrics
 size), Playback (radio autoplay, global shortcuts on/off), Account (profile switcher, clear
 guest data), About. Remembers the last pane (`settings.tab`), which is also how to
-screenshot a given pane: `defaults write dev.fringecore.ytmusic settings.tab appearance`.
+screenshot a given pane: `defaults write dev.fringecore.ytmusic.dev settings.tab appearance`.
 
 **Menu bar panel** — `UI/MenuBarPlayer.swift`: Control Center-style card over blurred
 artwork, scrubber, transport, volume, 3-row Up Next, footer with profile menu / open app /

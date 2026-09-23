@@ -34,13 +34,26 @@ extension View {
 /// The 34pt bold heading every page opens with.
 struct PageTitle: View {
     let text: String
+    /// A small capsule after the title, e.g. "DEV" on the dev build's Home.
+    var badge: String?
 
     var body: some View {
-        Text(text)
-            .font(.system(size: 34, weight: .bold))
-            .pageInsets()
-            .padding(.top, Theme.contentTop)
-            .padding(.bottom, 6)
+        HStack(alignment: .center, spacing: 10) {
+            Text(text)
+                .font(.system(size: 34, weight: .bold))
+            if let badge {
+                Text(badge)
+                    .font(.system(size: 12, weight: .heavy))
+                    .tracking(0.6)
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 3)
+                    .background(BuildFlavor.devColor, in: Capsule())
+            }
+        }
+        .pageInsets()
+        .padding(.top, Theme.contentTop)
+        .padding(.bottom, 6)
     }
 }
 
