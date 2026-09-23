@@ -90,8 +90,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             Task { await SelfTest.run() }
             return
         }
+        // `--install-update`: check and install straight away, no questions — for testing
+        // the update path end to end.
+        if CommandLine.arguments.contains("--install-update") {
+            Task {
+                if await Updater.shared.check() { await Updater.shared.install() }
+                else { Log.write("update: --install-update found nothing to install"); NSApp.terminate(nil) }
+            }
+            return
+        }
         NSApp.activate(ignoringOtherApps: true)
         if DemoMode.isRequested { Task { await DemoMode.start() } }
+        else { Updater.shared.startBackgroundChecks() }
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
@@ -105,6 +115,10 @@ struct PlaybackCommands: Commands {
 
     var body: some Commands {
         CommandGroup(replacing: .newItem) {}
+
+        CommandGroup(after: .appInfo) {
+            Button("Check for Updates…") { UpdateCommand.checkNow() }
+        }
 
         CommandMenu("Controls") {
             Button(player.isPlaying ? "Pause" : "Play") { player.toggle() }

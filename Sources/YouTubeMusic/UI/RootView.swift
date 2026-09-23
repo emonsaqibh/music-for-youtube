@@ -114,7 +114,13 @@ struct SidebarView: View {
             .padding(.bottom, 12)
         }
         .scrollIndicators(.never)
-        .safeAreaInset(edge: .bottom, spacing: 0) { AccountRow() }
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            VStack(spacing: 0) {
+                UpdateCard()
+                AccountRow()
+            }
+            .animation(.easeInOut(duration: 0.25), value: Updater.shared.offersUpdate)
+        }
         .animation(.easeInOut(duration: 0.2), value: router.guide)
         .animation(.easeInOut(duration: 0.2), value: router.playlists)
         .animation(.easeInOut(duration: 0.2), value: hasLibrary)
