@@ -263,6 +263,10 @@ out-of-step 37–59s sine waves; new songs cross-fade; Reduce Motion freezes it.
 is chosen in Settings only (the owner didn't want a switch in the player). A one-time
 migration (`settings.fullScreenBackground.artworkColorsMigrated`) moved previously saved
 styles onto Artwork colours; choices made after it are kept.
+Blur: a four-step slider under Background in Settings (only for Artwork colours;
+`settings.artworkBlur` 0–3 → radius 0/24/50/90, default step 2). The field is a 4×4 mesh
+drawn at ¼ window size, blurred there and scaled up, at 15fps — that took the full-window
+version from ~68% app CPU at the strongest blur down to baseline.
 
 ## 4. Next
 
