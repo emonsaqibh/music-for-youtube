@@ -1,0 +1,339 @@
+import SwiftUI
+
+enum LoadState: Equatable {
+    case loading
+    case ready
+    case empty(String)
+    case failed(String)
+}
+
+/// Shared loading / empty / error presentation so every page behaves the same.
+struct StateOverlay: View {
+    let state: LoadState
+    var retry: (() -> Void)?
+
+    var body: some View {
+        switch state {
+        case .loading:
+            VStack(spacing: 10) {
+                ProgressView().controlSize(.small)
+                Text("Loading…").font(.callout).foregroundStyle(.secondary)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+
+        case .empty(let text):
+            notice(symbol: "music.note.list", title: "Nothing here yet", detail: text)
+
+        case .failed(let text):
+            notice(symbol: "exclamationmark.triangle", title: "Couldn’t load", detail: text)
+
+        case .ready:
+            EmptyView()
+        }
+    }
+
+    private func notice(symbol: String, title: String, detail: String) -> some View {
+        VStack(spacing: 8) {
+            Image(systemName: symbol)
+                .font(.system(size: 30, weight: .light))
+                .foregroundStyle(.tertiary)
+            Text(title).font(.headline)
+            Text(detail)
+                .font(.callout)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+                .frame(maxWidth: 380)
+            if let retry {
+                Button("Try Again", action: retry)
+                    .buttonStyle(.glass)
+                    .padding(.top, 4)
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .padding(40)
+    }
+}
+
+/// One horizontal shelf: a header plus a paging row of tiles, or a grid of songs.
+struct ShelfRow: View {
+    let shelf: Shelf
+    /// The narrowest a tile may get; the real width fills the page evenly.
+    var tileWidth: CGFloat = Theme.tileWidth
+
+    @Environment(Router.self) private var router
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            if !shelf.title.isEmpty {
+                SectionHeader(title: shelf.title, strapline: shelf.strapline, onSeeAll: seeAll)
+                    .pageInsets()
+            }
+
+            if !shelf.cards.isEmpty {
+                // Music videos keep their 16:9 frame, in wider tiles, as on YouTube Music.
+                let wide = shelf.cards.filter(\.isWide).count * 2 > shelf.cards.count
+                PagedShelf(items: shelf.cards, minItemWidth: wide ? tileWidth * 1.55 : tileWidth) { card in
+                    CardTile(card: card, wide: wide)
+                }
+            }
+
+            if !shelf.tracks.isEmpty {
+                TrackShelfGrid(shelf: shelf)
+            }
+        }
+    }
+
+    private var seeAll: (() -> Void)? {
+        guard let browseId = shelf.moreBrowseId else { return nil }
+        return { router.open(.seeAll(browseId: browseId, params: shelf.moreParams, title: shelf.title)) }
+    }
+}
+
+/// A page made of shelves — Home, Explore, and any "See All" destination.
+///
+/// Shows everything YouTube sends for the page, not just its first batch: the feed is
+/// paged, so reaching the end fetches the next page, as music.youtube.com does. Home's
+/// mood chips sit under the title and re-filter the whole feed.
+struct FeedView: View {
+    let title: String
+    let browseId: String
+    var params: String?
+
+    @State private var shelves: [Shelf] = []
+    @State private var chips: [FeedChip] = []
+    @State private var continuation: String?
+    @State private var state: LoadState = .loading
+    /// Params of the chip currently applied, if any.
+    @State private var chipParams: String?
+    @State private var loadingMore = false
+    @State private var pageCount = 0
+
+    var body: some View {
+        ScrollView {
+            LazyVStack(alignment: .leading, spacing: Theme.shelfGap) {
+                VStack(alignment: .leading, spacing: 14) {
+                    PageTitle(text: title)
+                    if !chips.isEmpty {
+                        ChipBar(chips: chips) { chip in select(chip) }
+                    }
+                }
+                .padding(.bottom, chips.isEmpty ? 0 : -8)
+
+                ForEach(shelves) { ShelfRow(shelf: $0) }
+
+                if let continuation {
+                    ProgressView()
+                        .controlSize(.small)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 12)
+                        // A fresh identity per token, so reaching the end again after a
+                        // page lands asks for the next one.
+                        .id(continuation)
+                        .onAppear { Task { await loadMore() } }
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.bottom, Theme.playerClearance)
+        }
+        .overlay { StateOverlay(state: state, retry: { Task { await refresh() } }) }
+        .task(id: browseId + (params ?? "")) {
+            chipParams = nil
+            await refresh()
+        }
+    }
+
+    private func select(_ chip: FeedChip) {
+        chipParams = chip.isSelected ? chip.deselectParams : chip.params
+        Task { await refresh(keepingChips: true) }
+    }
+
+    private func refresh(keepingChips: Bool = false) async {
+        if shelves.isEmpty { state = .loading }
+        do {
+            let page = try await Catalog.feed(browseId, params: chipParams ?? params)
+            pageCount = 1
+            withAnimation(.easeOut(duration: 0.25)) {
+                shelves = page.shelves
+                // The chip row comes with the first page; a filtered page re-sends it with
+                // the new selection marked.
+                if !page.chips.isEmpty || !keepingChips { chips = page.chips }
+            }
+            continuation = page.continuation
+            state = page.shelves.isEmpty && page.continuation == nil
+                ? .empty(Session.shared.isGuest || !Session.shared.isSignedIn
+                         ? "Sign in to YouTube Music to see your recommendations."
+                         : "Nothing here right now.")
+                : .ready
+            // Some first pages are almost empty; fetch on until there is something to show.
+            if page.shelves.count < 2, page.continuation != nil { await loadMore() }
+        } catch {
+            shelves = []
+            continuation = nil
+            state = .failed(error.localizedDescription)
+        }
+    }
+
+    private func loadMore() async {
+        guard let token = continuation, !loadingMore else { return }
+        loadingMore = true
+        defer { loadingMore = false }
+        do {
+            let page = try await Catalog.feed(continuation: token)
+            guard token == continuation else { return }     // a chip changed the feed meanwhile
+            // Shelf ids restart on every page; prefix them so they stay unique.
+            let prefix = "p\(pageCount)-"
+            pageCount += 1
+            let fresh = page.shelves.map { shelf -> Shelf in
+                var shelf = shelf
+                shelf.id = prefix + shelf.id
+                return shelf
+            }
+            withAnimation(.easeOut(duration: 0.25)) { shelves.append(contentsOf: fresh) }
+            continuation = page.continuation
+            if state != .ready, !shelves.isEmpty { state = .ready }
+        } catch {
+            // Leave what we have; the end of the page simply stops growing.
+            Log.write("feed: continuation failed — \(error.localizedDescription)")
+            continuation = nil
+        }
+    }
+}
+
+/// Home's mood chips — a scrolling row of capsules, the selected one filled.
+private struct ChipBar: View {
+    let chips: [FeedChip]
+    let onSelect: (FeedChip) -> Void
+
+    var body: some View {
+        ScrollView(.horizontal) {
+            HStack(spacing: 8) {
+                ForEach(chips) { chip in
+                    Button { onSelect(chip) } label: {
+                        Text(chip.title)
+                            .font(.system(size: 13, weight: .medium))
+                            .foregroundStyle(chip.isSelected ? Color.white : Color.primary)
+                            .padding(.horizontal, 14)
+                            .padding(.vertical, 6)
+                            .background {
+                                Capsule().fill(chip.isSelected ? Theme.accent : Color.primary.opacity(0.08))
+                            }
+                            .contentShape(Capsule())
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .padding(.horizontal, Theme.pageInset)
+        }
+        .scrollIndicators(.never)
+        .animation(.easeInOut(duration: 0.2), value: chips)
+    }
+}
+
+/// Songs in a shelf are laid out as a horizontally-paging grid of four rows, which is
+/// how Music.app fills the home page — a single tall column reads as a list and loses
+/// the browsable feel. Columns are sized so a whole number fit the window.
+struct TrackShelfGrid: View {
+    let shelf: Shelf
+    var rows: Int = 4
+
+    @Environment(PlayerController.self) private var player
+
+    private struct Column: Identifiable {
+        let id: Int
+        let entries: [(offset: Int, track: Track)]
+    }
+
+    private var columns: [Column] {
+        let all = Array(shelf.tracks.enumerated()).map { (offset: $0.offset, track: $0.element) }
+        return stride(from: 0, to: all.count, by: rows).map { start in
+            Column(id: start, entries: Array(all[start..<min(start + rows, all.count)]))
+        }
+    }
+
+    var body: some View {
+        // Rows carry their own 8pt hover inset, so the margin gives that back to keep the
+        // text in line with the shelf title.
+        PagedShelf(items: columns, minItemWidth: 270, spacing: 12, margin: Theme.pageInset - 8) { column in
+            VStack(spacing: 2) {
+                ForEach(column.entries, id: \.track.id) { entry in
+                    ShelfTrackCell(track: entry.track) {
+                        player.play(shelf.tracks, startingAt: entry.offset, source: shelf.title)
+                    }
+                }
+            }
+            .frame(maxHeight: .infinity, alignment: .top)
+        }
+    }
+}
+
+private struct ShelfTrackCell: View {
+    let track: Track
+    let onPlay: () -> Void
+
+    @Environment(PlayerController.self) private var player
+    @Environment(Router.self) private var router
+    @State private var hovering = false
+
+    private var isCurrent: Bool { player.current?.id == track.id }
+
+    var body: some View {
+        HStack(spacing: 10) {
+            ZStack {
+                Artwork(url: track.artwork, cornerRadius: 4)
+                    .frame(width: 44, height: 44)
+                    .opacity(hovering ? 0.45 : 1)
+                if isCurrent && player.isPlaying && !hovering {
+                    PlayingIndicator(color: .white).shadow(radius: 3)
+                } else if hovering {
+                    Image(systemName: "play.fill")
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundStyle(.white)
+                }
+            }
+
+            VStack(alignment: .leading, spacing: 1) {
+                HStack(spacing: 5) {
+                    Text(track.title)
+                        .font(.system(size: 13))
+                        .foregroundStyle(isCurrent ? Theme.accent : .primary)
+                        .lineLimit(1)
+                    if track.isExplicit { ExplicitBadge() }
+                }
+                Text(track.artistLine)
+                    .font(.system(size: 12))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
+
+            Spacer(minLength: 4)
+
+            Menu {
+                Button("Play Next", systemImage: "text.line.first.and.arrowtriangle.forward") { player.playNext(track) }
+                Button("Play Last", systemImage: "text.line.last.and.arrowtriangle.forward") { player.addToQueue(track) }
+                if let id = track.artists.first?.id {
+                    Divider()
+                    Button("Go to Artist", systemImage: "music.mic") { router.open(.artist(id)) }
+                }
+            } label: {
+                Image(systemName: "ellipsis")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(.secondary)
+                    .frame(width: 22, height: 22)
+                    .contentShape(Rectangle())
+            }
+            .menuStyle(.borderlessButton)
+            .menuIndicator(.hidden)
+            .frame(width: 22)
+            .opacity(hovering ? 1 : 0)
+        }
+        .padding(.horizontal, 8)
+        .frame(height: 52)
+        .background {
+            RoundedRectangle(cornerRadius: 7, style: .continuous)
+                .fill(hovering ? Color.primary.opacity(0.055) : .clear)
+        }
+        .contentShape(Rectangle())
+        .onHover { hovering = $0 }
+        .onTapGesture(perform: onPlay)
+    }
+}
