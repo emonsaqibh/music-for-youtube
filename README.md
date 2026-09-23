@@ -73,11 +73,17 @@ Modelled on Music.app on macOS 26 rather than on an older Apple Music:
 ```sh
 ./build.sh          # → build/Music for YouTube Dev.app
 ./run.sh            # build, then launch (dev build)
-./release.sh 0.1.0-beta.2   # freeze a beta → releases/ + /Applications
+./release.sh 0.2.0-beta.2   # freeze a beta → releases/ + /Applications
+./install.sh                # install the newest GitHub release (see below)
 ```
 
 Requires Xcode 26 and macOS 26+. The app is ad-hoc signed and unsandboxed, so it runs
 locally without a developer account.
+
+Released builds are ad-hoc signed, not notarized, so a copy downloaded from GitHub in a
+browser is quarantined and Gatekeeper refuses to open it on macOS 15+. `install.sh`
+downloads with the GitHub CLI instead (no quarantine). Otherwise: `xattr -dr
+com.apple.quarantine` on the app, or System Settings › Privacy & Security › Open Anyway.
 
 ## First run
 

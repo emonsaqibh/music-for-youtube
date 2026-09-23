@@ -47,6 +47,11 @@ kept apart and both can run at once:
 | Logs | `~/Library/Logs/MusicForYouTube-Dev/` | `~/Library/Logs/MusicForYouTube/` |
 | Looks | blue icon (recoloured copy made by `build.sh`), **DEV** badge on Home | red icon, no badge |
 
+Releases are ad-hoc signed, not notarized: a browser-downloaded zip is quarantined and
+Gatekeeper blocks it on macOS 15+ ("Apple could not verify…"). `./install.sh [version]`
+installs a GitHub release via `gh` (no quarantine). Real fix = Developer ID signing +
+notarization, which needs a paid Apple Developer account (none on this Mac yet).
+
 All development and testing uses the **dev** build. A release is frozen: `release.sh`
 builds in release config, saves the app and a `source.tar.gz` snapshot under
 `releases/<version>/`, installs it to `/Applications`, and refuses to reuse a version.
