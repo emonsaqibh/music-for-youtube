@@ -304,12 +304,31 @@ Off in dev builds; `--demo --demo-update` shows the card in a demo run. The in-a
 download-and-swap installer was removed.
 
 **Sign-in from any browser** — `SignIn.start()` uses the default browser if supported,
-else a picker of installed ones (Safari, Chrome/Brave/Edge/Arc/Vivaldi/Opera, Firefox);
+else a picker of installed ones (Safari, Firefox; Chromium hidden — see Known issue);
 the in-app `AuthWindow` is last. "Sign In with Another Browser…" (Help menu, account menu)
 opens the picker directly. Chromium: `ChromiumCookies.unlock` reads "<Browser> Safe
 Storage" from the Keychain once (one macOS prompt), PBKDF2 → AES-128-CBC, strips the
 32-byte host hash for DB meta version ≥ 24; picks the profile signed in to YouTube, last
 used first. Firefox: plain cookies.sqlite. DBs are copied before reading (browsers lock them).
+
+**Known issue — Chromium sign-in fails when the app is opened normally (2026-09-23).**
+Launched from Finder/Dock/`open`, the Keychain read returns `-25293` (errSecAuthFailed)
+at once, with no prompt, so the user sees "Chrome's sign-in stayed locked". Launching the
+same build's binary straight from a terminal shows the prompt, and after Allow Chrome
+imported 143 cookies. Chrome's Safe Storage ACL is normal ("Confirm before allowing",
+Chrome only), and the code signature verifies. Suspected but unproven: ad-hoc signing.
+This Mac has no signing identity, so a normally launched app gets no prompt; a terminal
+launch works, perhaps because the terminal becomes the responsible process. Beta
+builds are signed the same way, so Chrome/Brave/Edge/Arc/Vivaldi/Opera sign-in would
+fail for users. **Chromium browsers are now hidden**: `BrowserImport.isSupported` returns
+false for `.chromium`, and `installedBrowsers` filters on it. That covers the default
+browser, the picker and "Sign In with Another Browser…". A Chrome-default user gets the
+picker (Safari/Firefox), or the in-app window if neither is installed. The reader code
+(`ChromiumCookies`) is still there. To bring it back, get Developer ID signing, re-test
+with a normal launch, then make `isSupported` return true again. Note that the Keychain key
+also decrypts all of Chrome's cookies and saved passwords, so the prompt asks for a lot.
+`unlock` logs the OSStatus as `chromium-keychain: …`. Test only with a normal launch; a
+terminal launch hides the bug.
 
 ## 4. Next
 

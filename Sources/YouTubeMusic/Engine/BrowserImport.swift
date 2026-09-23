@@ -89,11 +89,14 @@ enum BrowserImport {
         }
     }
 
-    static func isSupported(_ browser: Browser) -> Bool { true }
+    /// Chromium browsers are hidden for now: in an ad-hoc signed app opened normally (not
+    /// from a terminal), macOS refuses the "<Browser> Safe Storage" Keychain read at once
+    /// (-25293) without prompting. See HANDOFF.md, "Known issue".
+    static func isSupported(_ browser: Browser) -> Bool { browser.engine != .chromium }
 
     /// Every supported browser installed on this Mac, the default one first.
     static var installedBrowsers: [Browser] {
-        let installed = Browser.allCases.filter { applicationURL(for: $0) != nil }
+        let installed = Browser.allCases.filter { isSupported($0) && applicationURL(for: $0) != nil }
         guard let preferred = defaultBrowser, installed.contains(preferred) else { return installed }
         return [preferred] + installed.filter { $0 != preferred }
     }

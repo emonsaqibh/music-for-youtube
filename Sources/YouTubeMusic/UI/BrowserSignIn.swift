@@ -5,7 +5,8 @@ import SwiftUI
 /// Every "Sign In" in the app lands here. Signing in happens in a browser the user already
 /// uses, where Google knows them; the app then picks the session up. In order:
 ///
-/// 1. the default browser, if it's one we can read (Safari, Chromium browsers, Firefox);
+/// 1. the default browser, if it's one we can read (Safari, Firefox; Chromium browsers are
+///    hidden for now — see `BrowserImport.isSupported`);
 /// 2. otherwise a choice of the supported browsers that are installed;
 /// 3. only with none installed — or on request — the in-app sign-in window.
 @MainActor
