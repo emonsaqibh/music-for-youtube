@@ -2,6 +2,7 @@
 # Freezes the current source as a versioned beta and installs it.
 #
 #   ./release.sh 0.1.0-beta.1
+#   INSTALL=0 ./release.sh 1.0.2    (leave /Applications alone)
 #
 # Produces releases/<version>/ with the built app and a snapshot of the source it was
 # built from, then copies the app to /Applications. A release is never rebuilt or
@@ -26,7 +27,9 @@ tar -czf "$DEST/source.tar.gz" --exclude .build --exclude build --exclude releas
 mv "$STAGE/$APP_NAME.app" "$DEST/"
 
 INSTALLED="/Applications/$APP_NAME.app"
-if pgrep -f "$INSTALLED/Contents/MacOS/YouTubeMusic" >/dev/null; then
+if [ "${INSTALL:-1}" = 0 ]; then
+    echo "==> not installing (INSTALL=0) — update through the app or install.sh"
+elif pgrep -f "$INSTALLED/Contents/MacOS/YouTubeMusic" >/dev/null; then
     echo "==> $INSTALLED is running — quit it, then: ditto \"$DEST/$APP_NAME.app\" \"$INSTALLED\""
 else
     echo "==> installing to $INSTALLED"
