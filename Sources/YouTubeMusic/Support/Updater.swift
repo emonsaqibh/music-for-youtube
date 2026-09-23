@@ -98,27 +98,39 @@ final class Updater {
     /// The newest release by version. Betas are GitHub pre-releases, which the API's
     /// `releases/latest` skips, so this reads the list and picks the highest itself.
     private static func fetchLatest() async throws -> Release {
-        var request = URLRequest(url: URL(string: "https://api.github.com/repos/\(repo)/releases?per_page=30")!)
-        request.setValue("application/vnd.github+json", forHTTPHeaderField: "Accept")
-        let (data, response) = try await URLSession.shared.data(for: request)
-        guard (response as? HTTPURLResponse)?.statusCode == 200,
-              let list = try JSONSerialization.jsonObject(with: data) as? [[String: Any]]
+        guard let list = try await getJSON("https://api.github.com/repos/\(repo)/releases?per_page=30")
+                as? [[String: Any]] else { throw UpdateError.noRelease }
+
+        let published = list.filter { $0["draft"] as? Bool != true && $0["tag_name"] is String }
+        guard let newest = published.max(by: {
+                  Version($0["tag_name"] as! String) < Version($1["tag_name"] as! String) }),
+              let tag = newest["tag_name"] as? String,
+              let page = (newest["html_url"] as? String).flatMap(URL.init(string:))
         else { throw UpdateError.noRelease }
 
-        let releases: [Release] = list.compactMap { json in
-            guard json["draft"] as? Bool != true,
-                  let tag = json["tag_name"] as? String,
-                  let page = (json["html_url"] as? String).flatMap(URL.init(string:)),
-                  let assets = json["assets"] as? [[String: Any]],
-                  let zip = assets.first(where: { ($0["name"] as? String)?.hasSuffix(".zip") == true })?["browser_download_url"] as? String,
-                  let zipURL = URL(string: zip) else { return nil }
-            let version = tag.hasPrefix("v") ? String(tag.dropFirst()) : tag
-            return Release(version: version, notes: json["body"] as? String ?? "", zip: zipURL, page: page)
+        // GitHub sometimes lags filling in a release's embedded asset list; its own assets
+        // endpoint is up to date, so ask that when the list comes back without the zip.
+        var assets = newest["assets"] as? [[String: Any]] ?? []
+        if zipURL(in: assets) == nil, let id = newest["id"] as? Int {
+            assets = try await getJSON("https://api.github.com/repos/\(repo)/releases/\(id)/assets")
+                as? [[String: Any]] ?? []
         }
-        guard let newest = releases.max(by: { Version($0.version) < Version($1.version) }) else {
-            throw UpdateError.noRelease
-        }
-        return newest
+        guard let zip = zipURL(in: assets) else { throw UpdateError.noRelease }
+        let version = tag.hasPrefix("v") ? String(tag.dropFirst()) : tag
+        return Release(version: version, notes: newest["body"] as? String ?? "", zip: zip, page: page)
+    }
+
+    private static func zipURL(in assets: [[String: Any]]) -> URL? {
+        (assets.first { ($0["name"] as? String)?.hasSuffix(".zip") == true }?["browser_download_url"] as? String)
+            .flatMap(URL.init(string:))
+    }
+
+    private static func getJSON(_ url: String) async throws -> Any {
+        var request = URLRequest(url: URL(string: url)!)
+        request.setValue("application/vnd.github+json", forHTTPHeaderField: "Accept")
+        let (data, response) = try await URLSession.shared.data(for: request)
+        guard (response as? HTTPURLResponse)?.statusCode == 200 else { throw UpdateError.noRelease }
+        return try JSONSerialization.jsonObject(with: data)
     }
 
     // MARK: Installing

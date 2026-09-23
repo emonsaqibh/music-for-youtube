@@ -36,11 +36,24 @@ fi
 curl -fsSL "$API" -o "$TMP/release.json" || fail "couldn't reach GitHub ($API)"
 field() { plutil -extract "$P$1" raw -o - "$TMP/release.json" 2>/dev/null; }
 TAG="$(field tag_name)" || fail "no release found"
-URL=""
-for i in 0 1 2 3 4 5 6 7 8 9; do
-    name="$(field "assets.$i.name")" || break
-    case "$name" in *.zip) URL="$(field "assets.$i.browser_download_url")"; break ;; esac
-done
+
+# The first .zip in a list of assets; $1 is the file, $2 the key path to the list.
+zip_url() {
+    local i name
+    for i in 0 1 2 3 4 5 6 7 8 9; do
+        name="$(plutil -extract "$2$i.name" raw -o - "$1" 2>/dev/null)" || return 1
+        case "$name" in *.zip) plutil -extract "$2$i.browser_download_url" raw -o - "$1"; return ;; esac
+    done
+    return 1
+}
+URL="$(zip_url "$TMP/release.json" "${P}assets.")" || URL=""
+if [ -z "$URL" ]; then
+    # GitHub sometimes lags filling in a release's embedded asset list; its own assets
+    # endpoint is up to date.
+    ID="$(field id)"
+    curl -fsSL "https://api.github.com/repos/$REPO/releases/$ID/assets" -o "$TMP/assets.json" \
+        && URL="$(zip_url "$TMP/assets.json" "")" || URL=""
+fi
 [ -n "$URL" ] || fail "release $TAG has no app zip"
 
 say "Downloading ${APP_NAME} ${TAG#v}…"

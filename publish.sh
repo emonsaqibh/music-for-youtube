@@ -29,4 +29,18 @@ git push -q origin HEAD "$TAG"
 echo "==> release"
 gh release create "$TAG" "$STAGE/$ASSET" --verify-tag --prerelease --title "$VERSION" --notes-file "$NOTES"
 
+# The release is useless without its zip (install.sh and the updater both need it), and
+# gh has returned success with the asset missing — so confirm it's really there.
+# Ask the release's own assets endpoint: the asset list embedded in the release object can
+# lag behind for minutes, which once made a fine release look empty.
+echo "==> checking the zip is attached"
+REPO="$(gh repo view --json nameWithOwner -q .nameWithOwner)"
+RID="$(gh api "repos/$REPO/releases/tags/$TAG" --jq .id)"
+has_zip() { gh api "repos/$REPO/releases/$RID/assets" --jq '.[] | select(.state == "uploaded") | .name' | grep -q '\.zip$'; }
+for _ in $(seq 1 12); do has_zip && break; sleep 5; done
+if ! has_zip; then
+    echo "==> zip missing after publishing — uploading it again"
+    gh release upload "$TAG" "$STAGE/$ASSET" --clobber
+    has_zip || { echo "error: $TAG still has no zip attached — fix before announcing it" >&2; exit 1; }
+fi
 echo "==> published $VERSION"
