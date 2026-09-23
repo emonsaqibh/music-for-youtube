@@ -228,7 +228,7 @@ private struct ProfileMenu: View {
             }
             Divider()
             if !(session.profile == .account ? session.isSignedIn : session.hasAccount) {
-                Button("Sign In…") { AuthWindow.present() }
+                Button("Sign In…") { SignIn.start() }
             }
         } label: {
             HStack(spacing: 6) {
@@ -254,7 +254,7 @@ private struct ProfileMenu: View {
     private func switchTo(_ profile: Session.Profile) {
         guard profile != session.profile else { return }
         if profile == .account && !session.hasAccount {
-            AuthWindow.present()
+            SignIn.start()
         } else {
             PlayerController.shared.switchProfile(to: profile)
         }

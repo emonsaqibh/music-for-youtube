@@ -58,9 +58,11 @@ enum Catalog {
 
     /// A library section, plus YouTube's own message for when it is empty.
     /// The first page of a feed. Later pages come from `feed(continuation:)`.
-    static func feed(_ browseId: String, params: String? = nil) async throws -> FeedPage {
+    /// `filterValue` is a `FeedFilter` choice — a country, for Charts.
+    static func feed(_ browseId: String, params: String? = nil, filterValue: String? = nil) async throws -> FeedPage {
         var body: [String: Any] = ["browseId": browseId]
         if let params { body["params"] = params }
+        if let filterValue { body["formData"] = ["selectedValues": [filterValue]] }
         return Parse.feedPage(try await engine.innertube("browse", body))
     }
 

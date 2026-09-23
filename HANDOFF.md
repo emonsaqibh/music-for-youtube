@@ -193,6 +193,55 @@ itself on `ready` (it used to trust autoplay and sit paused) and is capped at on
 
 ---
 
+## 3c. Done (session 5, 2026-09-23): Explore and Charts
+
+Explore is built from `musicNavigationButtonRenderer`s, which were being dropped. They
+parse into `NavButton` (`Shelf.buttons`) and render in `UI/Components/NavButtons.swift`:
+the icon buttons (New releases / Charts / Moods & genres) as a row of destination tiles,
+and moods and genres as Apple Music-style category tiles — a `MeshGradient` built from
+YouTube's `leftStripeColor`, pushed to full saturation and dark enough for white text
+(greys become graphite, yellows lean amber, warm shades darken towards red rather than
+brown). Two rows paging sideways on Explore, a wrapping grid on the Moods & genres page.
+Every button opens its browseId (+ params) as a `seeAll` feed. `gridRenderer` shelves are
+`isGrid` and wrap instead of paging.
+
+**Charts country picker** — `FeedPage.filter` (`Parse.feedFilter`) reads the
+`musicSortFilterButtonRenderer` menu; `FeedView` shows it as a glass pull-down under the
+title and re-requests the page with `formData: {selectedValues: [<code>]}` (what the web
+app's form binder sends). The choice persists in `feed.filter.<browseId>`. The country code
+is inside each option's `formItemEntityKey` (base64 protobuf, field 2:
+`explore_charts_country_menu_<digits><CC>`) — **in the app the string also carries the
+referring page after the code** (`…567ZZFEmusic_explore`), so take exactly two capitals.
+The dump from `--probe-nav` doesn't show that suffix.
+
+**Ranked rows** — `customIndexColumn` → `ChartRank` (position + up/down/same) on `Card`
+and `Track`. A shelf whose cards are all ranked (Top artists, Weekly top podcast shows)
+renders as `RankedShelfGrid` (`UI/Components/RankedShelf.swift`): numbered rows in
+columns of five with a trend arrow, paging sideways.
+
+**Player pill on pushed pages** — it was an overlay on the `NavigationStack`, and on
+macOS each pushed page (album, artist, playlist, See All) is hosted in its own AppKit
+view that draws above such an overlay, so the pill vanished off the root page. It is now
+attached to every page (`withPlayerPill()` in `RootView.swift`). Don't move it back.
+
+**Sidebar, Music.app proportions** — `SidebarView` is now a hand-laid `ScrollView`, not a
+`List`, so it can match Music.app on macOS 26: 32pt rows, 15pt titles, outlined accent
+SF Symbols (`NavItem.symbol`; Explore is a compass, `safari`), a filled accent capsule
+with white text for the selection, 13pt grey section headers. Charts is added after
+Explore (`Router.primaryItems`, `Guide.charts`). The Library section only appears when
+there is one: signed out it is replaced by a sign-in prompt, and in guest mode it is gone.
+
+**Sign-in happens in the default browser** (user's choice) — every Sign In calls
+`SignIn.start()` (`UI/BrowserSignIn.swift`). If the default browser is supported (Safari
+today), a small window watches the browser: it needs Full Disk Access to read Safari's
+`Cookies.binarycookies` (the window walks the user through granting it and carries on by
+itself); if Safari is signed out it opens Google's sign-in there and polls every 2s; once
+`SAPISID` appears it copies only the Google/YouTube cookies into the account store
+(`BrowserImport.install`, which first clears old Google cookies) and reloads. Chromium
+browsers aren't read yet (Keychain-encrypted SQLite) and fall back to the in-app
+`AuthWindow`, which also stays reachable from the window. Dev builds are ad-hoc signed, so
+Full Disk Access must be re-granted after each rebuild (only needed while signing in).
+
 ## 4. Next
 
 - Advanced features: library mutation (like / add to playlist), search continuations,

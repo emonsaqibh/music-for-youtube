@@ -78,6 +78,7 @@ enum SafariCookies {
                     .expires: Date(timeIntervalSinceReferenceDate: expiry),
                 ]
                 if flags & 1 != 0 { props[.secure] = "TRUE" }
+                if flags & 4 != 0 { props[HTTPCookiePropertyKey("HttpOnly")] = "TRUE" }
                 if let cookie = HTTPCookie(properties: props) { cookies.append(cookie) }
             }
             pageStart += size

@@ -69,11 +69,27 @@ struct ShelfRow: View {
                     .pageInsets()
             }
 
+            if !shelf.buttons.isEmpty {
+                ButtonShelf(shelf: shelf)
+            }
+
             if !shelf.cards.isEmpty {
                 // Music videos keep their 16:9 frame, in wider tiles, as on YouTube Music.
                 let wide = shelf.cards.filter(\.isWide).count * 2 > shelf.cards.count
-                PagedShelf(items: shelf.cards, minItemWidth: wide ? tileWidth * 1.55 : tileWidth) { card in
-                    CardTile(card: card, wide: wide)
+                let minWidth = wide ? tileWidth * 1.55 : tileWidth
+                if shelf.cards.allSatisfy({ $0.rank != nil }) {
+                    RankedShelfGrid(shelf: shelf)
+                } else if shelf.isGrid {
+                    LazyVGrid(columns: [GridItem(.adaptive(minimum: minWidth, maximum: minWidth * 1.5),
+                                                 spacing: 20, alignment: .top)],
+                              alignment: .leading, spacing: 26) {
+                        ForEach(shelf.cards) { CardTile(card: $0, wide: wide) }
+                    }
+                    .pageInsets()
+                } else {
+                    PagedShelf(items: shelf.cards, minItemWidth: minWidth) { card in
+                        CardTile(card: card, wide: wide)
+                    }
                 }
             }
 
@@ -107,6 +123,12 @@ struct FeedView: View {
     @State private var chipParams: String?
     @State private var loadingMore = false
     @State private var pageCount = 0
+    /// Charts' country menu, and the choice sent with the request.
+    @State private var filter: FeedFilter?
+    @State private var filterValue: String?
+
+    /// The last choice is remembered per page, so Charts reopens on the same country.
+    private var filterKey: String { "feed.filter." + browseId }
 
     var body: some View {
         ScrollView {
@@ -114,11 +136,15 @@ struct FeedView: View {
                 VStack(alignment: .leading, spacing: 14) {
                     PageTitle(text: title,
                               badge: BuildFlavor.isDev && browseId == "FEmusic_home" ? "DEV" : nil)
+                    if let filter {
+                        FilterMenu(filter: filter) { choose($0) }
+                            .pageInsets()
+                    }
                     if !chips.isEmpty {
                         ChipBar(chips: chips) { chip in select(chip) }
                     }
                 }
-                .padding(.bottom, chips.isEmpty ? 0 : -8)
+                .padding(.bottom, chips.isEmpty && filter == nil ? 0 : -8)
 
                 ForEach(shelves) { ShelfRow(shelf: $0) }
 
@@ -139,6 +165,7 @@ struct FeedView: View {
         .overlay { StateOverlay(state: state, retry: { Task { await refresh() } }) }
         .task(id: browseId + (params ?? "")) {
             chipParams = nil
+            filterValue = UserDefaults.standard.string(forKey: filterKey)
             await refresh()
         }
     }
@@ -148,16 +175,23 @@ struct FeedView: View {
         Task { await refresh(keepingChips: true) }
     }
 
+    private func choose(_ option: FeedFilter.Option) {
+        filterValue = option.value
+        UserDefaults.standard.set(option.value, forKey: filterKey)
+        Task { await refresh(keepingChips: true) }
+    }
+
     private func refresh(keepingChips: Bool = false) async {
         if shelves.isEmpty { state = .loading }
         do {
-            let page = try await Catalog.feed(browseId, params: chipParams ?? params)
+            let page = try await Catalog.feed(browseId, params: chipParams ?? params, filterValue: filterValue)
             pageCount = 1
             withAnimation(.easeOut(duration: 0.25)) {
                 shelves = page.shelves
                 // The chip row comes with the first page; a filtered page re-sends it with
                 // the new selection marked.
                 if !page.chips.isEmpty || !keepingChips { chips = page.chips }
+                filter = page.filter
             }
             continuation = page.continuation
             state = page.shelves.isEmpty && page.continuation == nil
@@ -197,6 +231,51 @@ struct FeedView: View {
             Log.write("feed: continuation failed — \(error.localizedDescription)")
             continuation = nil
         }
+    }
+}
+
+/// Charts' country picker: a glass pull-down naming the current choice.
+private struct FilterMenu: View {
+    let filter: FeedFilter
+    let onChoose: (FeedFilter.Option) -> Void
+
+    /// Options split where YouTube puts a divider (Global | the countries).
+    private var groups: [[FeedFilter.Option]] {
+        filter.options.reduce(into: [[FeedFilter.Option]]()) { groups, option in
+            if option.startsGroup || groups.isEmpty { groups.append([option]) }
+            else { groups[groups.count - 1].append(option) }
+        }
+    }
+
+    var body: some View {
+        Menu {
+            if let title = filter.title { Text(title) }
+            ForEach(Array(groups.enumerated()), id: \.offset) { index, group in
+                if index > 0 { Divider() }
+                ForEach(group) { option in
+                    Toggle(option.title, isOn: Binding(
+                        get: { option.isSelected },
+                        set: { _ in if !option.isSelected { onChoose(option) } }))
+                }
+            }
+        } label: {
+            HStack(spacing: 6) {
+                Image(systemName: "globe")
+                Text(filter.selected?.title ?? filter.title ?? "")
+                Image(systemName: "chevron.down")
+                    .font(.system(size: 10, weight: .bold))
+                    .foregroundStyle(.secondary)
+            }
+            .font(.system(size: 13, weight: .semibold))
+            .padding(.horizontal, 14)
+            .padding(.vertical, 7)
+            .contentShape(Capsule())
+        }
+        .menuStyle(.button)
+        .buttonStyle(.plain)
+        .menuIndicator(.hidden)
+        .glassEffect(.regular.interactive(), in: Capsule())
+        .fixedSize()
     }
 }
 
@@ -279,6 +358,7 @@ private struct ShelfTrackCell: View {
 
     var body: some View {
         HStack(spacing: 10) {
+            if let rank = track.rank { RankMark(rank: rank) }
             ZStack {
                 Artwork(url: track.artwork, cornerRadius: 4)
                     .frame(width: 44, height: 44)

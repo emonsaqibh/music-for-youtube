@@ -102,6 +102,7 @@ enum Parse {
         track.setVideoId = r[path: "playlistItemData.playlistSetVideoId"].stringValue
         track.artwork = artwork(r, size: 240)
         track.isExplicit = isExplicit(r["badges"])
+        track.rank = rank(r)
 
         // Artists, album and duration all live in the secondary flex columns, told apart
         // by the endpoint attached to each run.
@@ -227,7 +228,35 @@ enum Parse {
             artwork: artwork(r, size: 400),
             browseId: browseId,
             videoId: nil,
-            playlistId: playlistId(in: r["overlay"]))
+            playlistId: playlistId(in: r["overlay"]),
+            rank: rank(r))
+    }
+
+    /// The chart position column of a ranked row: "1" and an up / down / unchanged arrow.
+    static func rank(_ r: JSON) -> ChartRank? {
+        let column = r[path: "customIndexColumn.musicCustomIndexColumnRenderer"]
+        guard let position = column["text"].text, !position.isEmpty else { return nil }
+        let trend: ChartRank.Trend? = switch column[path: "icon.iconType"].stringValue {
+        case "ARROW_DROP_UP": .up
+        case "ARROW_DROP_DOWN": .down
+        case "ARROW_CHART_NEUTRAL": .same
+        default: nil
+        }
+        return ChartRank(position: position, trend: trend)
+    }
+
+    // MARK: - Navigation buttons
+
+    /// `musicNavigationButtonRenderer` — Explore's top buttons and the mood and genre tiles.
+    static func navButton(_ r: JSON) -> NavButton? {
+        guard let title = r["buttonText"].text, !title.isEmpty,
+              let browse = r["clickCommand"].first("browseEndpoint"),
+              let browseId = browse["browseId"].stringValue else { return nil }
+        return NavButton(title: title,
+                         browseId: browseId,
+                         params: browse["params"].stringValue,
+                         iconType: r[path: "iconStyle.icon.iconType"].stringValue,
+                         color: r[path: "solid.leftStripeColor"].doubleValue.map { UInt32(truncatingIfNeeded: Int64($0)) })
     }
 
     // MARK: - Shelves
@@ -265,6 +294,8 @@ enum Parse {
         for item in r["contents"].arrayValue {
             if item["musicTwoRowItemRenderer"].exists {
                 if let c = card(item["musicTwoRowItemRenderer"]) { shelf.cards.append(c) }
+            } else if item["musicNavigationButtonRenderer"].exists {
+                if let b = navButton(item["musicNavigationButtonRenderer"]) { shelf.buttons.append(b) }
             } else if item["musicResponsiveListItemRenderer"].exists {
                 let row = item["musicResponsiveListItemRenderer"]
                 if let t = track(row) { shelf.tracks.append(t) }
@@ -287,9 +318,11 @@ enum Parse {
 
     private static func grid(_ r: JSON, index: Int) -> Shelf? {
         var shelf = Shelf(id: "grid-\(index)",
-                          title: r[path: "header.gridHeaderRenderer.title"].text ?? "")
+                          title: r[path: "header.gridHeaderRenderer.title"].text ?? "",
+                          isGrid: true)
         for item in r["items"].arrayValue {
             if let c = card(item["musicTwoRowItemRenderer"]) { shelf.cards.append(c) }
+            else if let b = navButton(item["musicNavigationButtonRenderer"]) { shelf.buttons.append(b) }
         }
         return shelf.isEmpty ? nil : shelf
     }
@@ -352,7 +385,49 @@ enum Parse {
     static func feedPage(_ response: JSON) -> FeedPage {
         FeedPage(shelves: shelves(in: response),
                  continuation: feedContinuation(response),
-                 chips: chips(in: response))
+                 chips: chips(in: response),
+                 filter: feedFilter(response))
+    }
+
+    /// Charts' country menu (`musicSortFilterButtonRenderer` → `musicMultiSelectMenuRenderer`).
+    static func feedFilter(_ response: JSON) -> FeedFilter? {
+        guard let button = response.first("musicSortFilterButtonRenderer"),
+              let menu = button.first("musicMultiSelectMenuRenderer") else { return nil }
+        let current = button["title"].text
+        var options: [FeedFilter.Option] = []
+        var afterDivider = false
+        for item in menu["options"].arrayValue {
+            if item["musicMenuItemDividerRenderer"].exists { afterDivider = true; continue }
+            let r = item["musicMultiSelectMenuItemRenderer"]
+            guard let title = r["title"].text,
+                  let value = formValue(r["formItemEntityKey"].stringValue) else { continue }
+            // The button is titled with the option in effect; failing that, it is the one
+            // with nothing to do when chosen.
+            let selected = current.map { $0 == title } ?? !r["selectedCommand"].exists
+            options.append(.init(title: title, value: value, isSelected: selected, startsGroup: afterDivider))
+            afterDivider = false
+        }
+        guard !options.isEmpty else { return nil }
+        return FeedFilter(title: menu[path: "title.musicMenuTitleRenderer.primaryText"].text, options: options)
+    }
+
+    private static let formValuePattern = try! Regex(#"_menu_\d+([A-Z]{2})"#)
+
+    /// A menu option's value lives inside its entity key: base64 protobuf whose field 2 is
+    /// a string naming the form and the value — "explore_charts_country_menu_316766567AR",
+    /// sometimes with the referring page after it ("…567ARFEmusic_explore"). The value is
+    /// the two-letter country code straight after the digits (ZZ is Global).
+    static func formValue(_ key: String?) -> String? {
+        guard let key = key?.removingPercentEncoding,
+              let data = Data(base64Encoded: key), data.count > 2,
+              data[data.startIndex] == 0x12 else { return nil }
+        let length = Int(data[data.startIndex + 1])
+        let start = data.startIndex + 2
+        guard length < 0x80, start + length <= data.endIndex,
+              let name = String(data: data[start..<start + length], encoding: .utf8),
+              let match = name.firstMatch(of: formValuePattern),
+              let value = match.output[1].substring else { return nil }
+        return String(value)
     }
 
     /// The next-page token of the feed's section list — looked for on the section list

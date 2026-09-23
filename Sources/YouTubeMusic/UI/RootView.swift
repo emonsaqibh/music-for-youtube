@@ -10,16 +10,14 @@ struct RootView: View {
 
         NavigationSplitView {
             SidebarView()
-                .navigationSplitViewColumnWidth(min: 190, ideal: Theme.sidebarWidth, max: 300)
+                .navigationSplitViewColumnWidth(min: 200, ideal: Theme.sidebarWidth, max: 300)
                 .toolbar(removing: .sidebarToggle)
         } detail: {
             NavigationStack(path: $router.path) {
                 ContentRoot()
-                    .navigationDestination(for: Route.self) { RouteView(route: $0) }
+                    .withPlayerPill()
+                    .navigationDestination(for: Route.self) { RouteView(route: $0).withPlayerPill() }
             }
-            // The player floats over the content column only — it stays centred on the
-            // page even when the side panel is open, exactly as Music.app does.
-            .overlay(alignment: .bottom) { PlayerPill() }
         }
         .inspector(isPresented: $router.isPanelPresented) {
             Group {
@@ -57,56 +55,90 @@ struct RootView: View {
     }
 }
 
+private extension View {
+    /// The player floats over the content column only — it stays centred on the page even
+    /// when the side panel is open, exactly as Music.app does.
+    ///
+    /// It is attached to every page rather than once to the navigation stack: on macOS a
+    /// pushed page is hosted in its own AppKit view, which draws above an overlay on the
+    /// stack and would hide the player on every album, artist or playlist.
+    func withPlayerPill() -> some View {
+        overlay(alignment: .bottom) { PlayerPill() }
+    }
+}
+
 // MARK: - Sidebar
 
-/// Music.app's sidebar design, filled with YouTube Music's own navigation: the guide's
-/// top-level entries, then its library sections, then the account's playlists.
+/// Music.app's sidebar, filled with YouTube Music's own navigation: the guide's top-level
+/// entries (plus Charts), the library when there is one, then the account's playlists.
+///
+/// Laid out by hand rather than as a `List` so its measurements can match Music.app's:
+/// 32pt rows, 15pt titles, outlined accent icons, a filled accent capsule for the
+/// selection, and headers set in from the rows.
 struct SidebarView: View {
     @Environment(Router.self) private var router
 
+    private var session: Session { .shared }
+
+    /// A remembered account counts until an explicit sign-out, so the library doesn't
+    /// blink out while the page is still reporting its state.
+    private var hasLibrary: Bool {
+        !session.isGuest && (session.isSignedIn || session.hasAccount)
+    }
+
     var body: some View {
-        List {
-            Section {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 0) {
                 SidebarRow(item: .search, title: "Search", symbol: "magnifyingglass")
-                ForEach(router.guide.primary) { item in
+                ForEach(router.primaryItems) { item in
                     SidebarRow(item: .feed(item), title: item.title, symbol: item.symbol)
                 }
-            }
 
-            if !router.guide.librarySections.isEmpty {
-                Section(router.guide.library?.title ?? "Library") {
-                    ForEach(router.guide.librarySections) { item in
-                        SidebarRow(item: .library(item), title: item.title, symbol: item.symbol)
+                if hasLibrary {
+                    if !router.guide.librarySections.isEmpty {
+                        SidebarHeader(title: router.guide.library?.title ?? "Library")
+                        ForEach(router.guide.librarySections) { item in
+                            SidebarRow(item: .library(item), title: item.title, symbol: item.symbol)
+                        }
                     }
+                    playlists
+                } else if !session.isGuest {
+                    // Signed out there is no library to list — say what signing in brings
+                    // instead of offering rows that can only say "sign in".
+                    SidebarHeader(title: router.guide.library?.title ?? "Library")
+                    LibrarySignInPrompt()
                 }
             }
-
-            if !AppSettings.shared.showsPlaylistsInSidebar {
-                EmptyView()
-            } else if !router.playlists.isEmpty {
-                Section(playlistsHeader) {
-                    ForEach(router.playlists) { card in
-                        SidebarRow(item: .playlist(id: card.playlistRouteId, title: card.title),
-                                   title: card.title,
-                                   artwork: card.artwork)
-                    }
-                }
-            } else if !router.guide.playlists.isEmpty {
-                // Saved playlists did not load, but the guide lists some — use those.
-                Section(playlistsHeader) {
-                    ForEach(router.guide.playlists) { item in
-                        SidebarRow(item: .playlist(id: String(item.browseId.dropFirst(2)), title: item.title),
-                                   title: item.title, symbol: item.symbol)
-                    }
-                }
-            }
+            .padding(.horizontal, 10)
+            .padding(.top, 8)
+            .padding(.bottom, 12)
         }
-        .listStyle(.sidebar)
-        .environment(\.defaultMinListRowHeight, 0)
-        .safeAreaInset(edge: .top) { Color.clear.frame(height: 22) }
-        .safeAreaInset(edge: .bottom) { AccountRow() }
+        .scrollIndicators(.never)
+        .safeAreaInset(edge: .bottom, spacing: 0) { AccountRow() }
         .animation(.easeInOut(duration: 0.2), value: router.guide)
         .animation(.easeInOut(duration: 0.2), value: router.playlists)
+        .animation(.easeInOut(duration: 0.2), value: hasLibrary)
+    }
+
+    @ViewBuilder
+    private var playlists: some View {
+        if !AppSettings.shared.showsPlaylistsInSidebar {
+            EmptyView()
+        } else if !router.playlists.isEmpty {
+            SidebarHeader(title: playlistsHeader)
+            ForEach(router.playlists) { card in
+                SidebarRow(item: .playlist(id: card.playlistRouteId, title: card.title),
+                           title: card.title,
+                           artwork: card.artwork)
+            }
+        } else if !router.guide.playlists.isEmpty {
+            // Saved playlists did not load, but the guide lists some — use those.
+            SidebarHeader(title: playlistsHeader)
+            ForEach(router.guide.playlists) { item in
+                SidebarRow(item: .playlist(id: String(item.browseId.dropFirst(2)), title: item.title),
+                           title: item.title, symbol: item.symbol)
+            }
+        }
     }
 
     /// YouTube's own (localised) name for the playlists section, if it gave us one.
@@ -123,9 +155,22 @@ private extension Card {
     }
 }
 
-/// Music.app marks the selected sidebar row with a neutral grey capsule and leaves the
-/// icon tinted, so the rows draw their own background rather than using the List's
-/// selection, which would paint the whole row in the system accent colour.
+/// A section title: small, bold and grey, set in a little from the rows' icons.
+private struct SidebarHeader: View {
+    let title: String
+
+    var body: some View {
+        Text(title)
+            .font(.system(size: 13, weight: .semibold))
+            .foregroundStyle(.secondary)
+            .padding(.leading, 6)
+            .padding(.top, 18)
+            .padding(.bottom, 6)
+    }
+}
+
+/// One destination. The selected row is a capsule of the accent colour with white text,
+/// as in Music.app on macOS 26.
 private struct SidebarRow: View {
     let item: SidebarItem
     let title: String
@@ -138,35 +183,56 @@ private struct SidebarRow: View {
     private var isSelected: Bool { router.selection.key == item.key }
 
     var body: some View {
-        HStack(spacing: 9) {
-            if let symbol {
-                Image(systemName: symbol)
-                    .font(.system(size: 14))
-                    .symbolRenderingMode(.hierarchical)
-                    .foregroundStyle(Theme.accent)
-                    .frame(width: 19, alignment: .center)
-            } else {
-                Artwork(url: artwork, cornerRadius: 3, symbol: "music.note.list")
-                    .frame(width: 19, height: 19)
+        HStack(spacing: 8) {
+            Group {
+                if let symbol {
+                    Image(systemName: symbol)
+                        .font(.system(size: 17))
+                        .foregroundStyle(isSelected ? Color.white : Theme.accent)
+                } else {
+                    Artwork(url: artwork, cornerRadius: 4, symbol: "music.note.list")
+                        .frame(width: 22, height: 22)
+                }
             }
+            .frame(width: 24)
 
             Text(title)
-                .font(.system(size: 14))
+                .font(.system(size: 15, weight: isSelected ? .semibold : .regular))
+                .foregroundStyle(isSelected ? Color.white : Color.primary)
                 .lineLimit(1)
             Spacer(minLength: 0)
         }
-        .padding(.horizontal, 9)
-        .padding(.vertical, 6)
+        .padding(.horizontal, 12)
+        .frame(height: 32)
         .background {
-            RoundedRectangle(cornerRadius: 7, style: .continuous)
-                .fill(isSelected ? Color.primary.opacity(0.13)
-                      : hovering ? Color.primary.opacity(0.055) : .clear)
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .fill(isSelected ? Theme.accent
+                      : hovering ? Color.primary.opacity(0.06) : .clear)
         }
         .contentShape(Rectangle())
         .onHover { hovering = $0 }
         .onTapGesture { router.select(item) }
-        .listRowInsets(EdgeInsets(top: 1, leading: 8, bottom: 1, trailing: 8))
-        .listRowSeparator(.hidden)
+        .help(title)
+    }
+}
+
+/// Stands in for the library while signed out.
+private struct LibrarySignInPrompt: View {
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Sign in to see the songs, albums, artists and playlists you’ve saved on YouTube Music.")
+                .font(.system(size: 12))
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            Button("Sign In") { SignIn.start() }
+                .buttonStyle(.glassProminent)
+                .tint(Theme.accent)
+                .controlSize(.small)
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(RoundedRectangle(cornerRadius: 12, style: .continuous)
+            .fill(Color.primary.opacity(0.05)))
     }
 }
 

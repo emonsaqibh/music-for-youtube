@@ -22,6 +22,8 @@ struct Track: Identifiable, Hashable, Sendable {
     var isExplicit = false
     /// Identifies this row *within a playlist*, required to remove or reorder it.
     var setVideoId: String?
+    /// Position in a chart.
+    var rank: ChartRank?
 
     var artistLine: String {
         artists.isEmpty ? "" : artists.map(\.name).joined(separator: ", ")
@@ -50,6 +52,29 @@ struct Card: Identifiable, Hashable, Sendable {
     var playlistId: String?
     /// Music videos arrive as 16:9 thumbnails; squaring them crops the picture.
     var isWide = false
+    /// Position in a chart (Top artists, Weekly top podcast shows).
+    var rank: ChartRank?
+}
+
+/// A chart position and which way it moved since the last chart.
+struct ChartRank: Hashable, Sendable {
+    enum Trend: Hashable, Sendable { case up, down, same }
+    var position: String
+    var trend: Trend?
+}
+
+/// A button that opens another browse page: Explore's New releases / Charts / Moods &
+/// genres, and every mood and genre tile.
+struct NavButton: Identifiable, Hashable, Sendable {
+    var title: String
+    var browseId: String
+    var params: String?
+    /// Set on Explore's top buttons.
+    var iconType: String?
+    /// The mood or genre's colour, from YouTube's `leftStripeColor` (ARGB).
+    var color: UInt32?
+
+    var id: String { browseId + (params ?? "") + title }
 }
 
 struct Shelf: Identifiable, Hashable, Sendable {
@@ -59,10 +84,15 @@ struct Shelf: Identifiable, Hashable, Sendable {
     var cards: [Card] = []
     /// Rows rather than tiles — search results and track listings use this.
     var tracks: [Track] = []
+    /// Buttons to other pages — Explore's top row, and mood and genre tiles.
+    var buttons: [NavButton] = []
     var moreBrowseId: String?
     var moreParams: String?
+    /// YouTube sent a grid rather than a carousel: lay it out as rows that wrap, not a
+    /// row that pages.
+    var isGrid = false
 
-    var isEmpty: Bool { cards.isEmpty && tracks.isEmpty }
+    var isEmpty: Bool { cards.isEmpty && tracks.isEmpty && buttons.isEmpty }
 }
 
 /// An album or playlist detail page.
@@ -201,6 +231,28 @@ struct FeedPage: Sendable {
     var continuation: String?
     /// The mood chips across the top of Home ("Workout", "Relax", …).
     var chips: [FeedChip] = []
+    /// A page-wide option menu — Charts' country picker.
+    var filter: FeedFilter?
+}
+
+/// A menu that re-requests the whole page with the chosen value (sent as the browse
+/// request's `formData`). Charts uses it to pick a country.
+struct FeedFilter: Hashable, Sendable {
+    struct Option: Identifiable, Hashable, Sendable {
+        var title: String
+        /// What the page is re-requested with — a country code for Charts.
+        var value: String
+        var isSelected: Bool
+        /// YouTube puts a divider before this option (Global stands apart from countries).
+        var startsGroup = false
+        var id: String { value }
+    }
+
+    /// The menu's heading ("Select a country").
+    var title: String?
+    var options: [Option]
+
+    var selected: Option? { options.first(where: \.isSelected) }
 }
 
 /// A filter chip. Selecting one reloads the same feed with its params; deselecting uses

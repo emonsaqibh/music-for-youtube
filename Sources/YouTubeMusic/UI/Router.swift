@@ -59,6 +59,16 @@ final class Router {
         selection = initial.primary.first.map(SidebarItem.feed) ?? .search
     }
 
+    /// The sidebar's top section: YouTube's own destinations, plus Charts straight after
+    /// Explore — the web app buries it a click deep, but it is a place people go directly.
+    var primaryItems: [NavItem] {
+        var items = guide.primary
+        guard !items.contains(where: { $0.browseId == Guide.charts.browseId }) else { return items }
+        let explore = items.firstIndex { $0.browseId == "FEmusic_explore" }
+        items.insert(Guide.charts, at: explore.map { $0 + 1 } ?? items.endIndex)
+        return items
+    }
+
     var isPanelPresented: Bool {
         get { panel != nil }
         set { if !newValue { panel = nil } }
@@ -111,8 +121,8 @@ final class Router {
     private func reconcileSelection() {
         switch selection {
         case .feed(let item):
-            if let match = guide.primary.first(where: { $0.id == item.id }) { selection = .feed(match) }
-            else if let first = guide.primary.first { selection = .feed(first) }
+            if let match = primaryItems.first(where: { $0.id == item.id }) { selection = .feed(match) }
+            else if let first = primaryItems.first { selection = .feed(first) }
         case .library(let item):
             if let match = guide.librarySections.first(where: { $0.id == item.id }) { selection = .library(match) }
         default:
@@ -125,6 +135,7 @@ final class Router {
 
 extension Guide {
     static let libraryId = "FEmusic_library_landing"
+    static let charts = NavItem(title: "Charts", browseId: "FEmusic_charts")
     static let likedPlaylistsId = "FEmusic_liked_playlists"
 
     /// Used before the first successful fetch, or if `guide` fails.
@@ -161,30 +172,32 @@ extension Guide {
 
 extension NavItem {
     /// YouTube's icon types (and, for library chips, which carry none, the browseId)
-    /// mapped onto SF Symbols. Anything unknown degrades to a generic music symbol.
+    /// mapped onto SF Symbols — outlined, as Music.app's sidebar draws them. Anything
+    /// unknown degrades to a generic music symbol.
     var symbol: String {
         switch iconType {
-        case "TAB_HOME": return "house.fill"
-        case "TAB_EXPLORE", "EXPLORE": return "sparkles"
-        case "TAB_BOOKMARK", "LIBRARY_MUSIC": return "square.stack.fill"
-        case "TAB_SAMPLES": return "play.square.stack.fill"
-        case "TAB_HISTORY", "WATCH_HISTORY": return "clock.fill"
-        case "LIKES_PLAYLIST", "LIKE": return "heart.fill"
+        case "TAB_HOME": return "house"
+        case "TAB_EXPLORE", "EXPLORE": return "safari"
+        case "TAB_BOOKMARK", "LIBRARY_MUSIC": return "square.stack"
+        case "TAB_SAMPLES": return "play.square.stack"
+        case "TAB_HISTORY", "WATCH_HISTORY": return "clock"
+        case "LIKES_PLAYLIST", "LIKE": return "hand.thumbsup"
         default: break
         }
         switch browseId {
         case "FEmusic_liked_playlists": return "music.note.list"
         case "FEmusic_liked_videos": return "music.note"
-        case "FEmusic_liked_albums": return "square.stack.fill"
+        case "FEmusic_liked_albums": return "square.stack"
         case "FEmusic_library_corpus_track_artists", "FEmusic_library_corpus_artists": return "music.mic"
-        case "FEmusic_library_non_music_audio_list", "FEmusic_library_podcasts": return "mic.fill"
-        case "FEmusic_history": return "clock.fill"
-        case "FEmusic_library_user_profile_channels_list": return "person.2.fill"
-        case "FEmusic_library_privately_owned_landing": return "icloud.and.arrow.up.fill"
+        case "FEmusic_library_non_music_audio_list", "FEmusic_library_podcasts": return "mic"
+        case "FEmusic_history": return "clock"
+        case "FEmusic_library_user_profile_channels_list": return "person.2"
+        case "FEmusic_library_privately_owned_landing": return "icloud.and.arrow.up"
         case "FEmusic_charts": return "chart.line.uptrend.xyaxis"
-        case "FEmusic_new_releases", "FEmusic_moods_and_genres": return "sparkles"
-        case "VLLM": return "heart.fill"
-        default: return browseId.hasPrefix("VL") ? "music.note.list" : "music.note.house.fill"
+        case "FEmusic_new_releases": return "sparkles"
+        case "FEmusic_moods_and_genres": return "face.smiling"
+        case "VLLM": return "hand.thumbsup"
+        default: return browseId.hasPrefix("VL") ? "music.note.list" : "music.note.house"
         }
     }
 }

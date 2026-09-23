@@ -12,7 +12,8 @@ import WebKit
 ///
 /// This reads only the Google/YouTube auth cookies, only from the one browser the user has
 /// set as their system default, and only when the user explicitly asks. It never touches
-/// other sites' cookies or other browsers.
+/// other sites' cookies or other browsers. The user chose this over the in-app window
+/// (2026-09-23) knowing it is the one place the app copies a session.
 ///
 /// ## Distribution note
 /// Reading another application's cookie store is, as a code pattern, the same thing
@@ -61,47 +62,51 @@ enum BrowserImport {
     }
 
     enum ImportError: LocalizedError {
-        case noSupportedDefaultBrowser(String?)
         case notReadable(Browser)
-        case noSession(Browser)
         case notImplemented(Browser)
 
         var errorDescription: String? {
             switch self {
-            case .noSupportedDefaultBrowser(let id):
-                "Your default browser\(id.map { " (\($0))" } ?? "") isn't one this app can "
-                    + "import a session from. Supported: "
-                    + Browser.allCases.map(\.displayName).joined(separator: ", ") + "."
             case .notReadable(let b):
-                "Couldn't read \(b.displayName)'s cookies. If you haven't, grant this app "
-                    + "Full Disk Access in System Settings › Privacy & Security."
-            case .noSession(let b):
-                "You don't appear to be signed in to YouTube in \(b.displayName). "
-                    + "Sign in there first, then try again."
+                "Couldn’t read \(b.displayName)’s sign-in. Allow Music for YouTube under "
+                    + "System Settings › Privacy & Security › Full Disk Access."
             case .notImplemented(let b):
-                "Importing from \(b.displayName) isn't wired up yet."
+                "Picking up a sign-in from \(b.displayName) isn’t supported yet."
             }
         }
     }
 
-    // MARK: The one public entry point
+    /// Browsers the sign-in can be handed over from today. Chromium stores are encrypted
+    /// with a Keychain key and not read yet; those browsers get the in-app window.
+    static func isSupported(_ browser: Browser) -> Bool { browser.engine == .safari }
 
-    /// Reads the YouTube session out of the default browser and installs it into the engine's
-    /// account store, then reloads so the app comes up signed in. Returns the browser it used.
-    @discardableResult
-    static func signInUsingDefaultBrowser() async throws -> Browser {
-        guard let browser = defaultBrowser else {
-            let id = LSCopyDefaultHandlerForURLScheme("https" as CFString)?
-                .takeRetainedValue() as String?
-            throw ImportError.noSupportedDefaultBrowser(id)
+    /// Where the default browser app lives, to open the sign-in page in it.
+    static func applicationURL(for browser: Browser) -> URL? {
+        NSWorkspace.shared.urlForApplication(withBundleIdentifier: browser.rawValue)
+    }
+
+    // MARK: Signing in
+
+    /// Google's sign-in, returning to YouTube Music — the same page the in-app window
+    /// loads, opened in the user's own browser instead.
+    static let signInURL = URL(string:
+        "https://accounts.google.com/ServiceLogin?service=youtube"
+        + "&continue=https%3A%2F%2Fmusic.youtube.com%2F")!
+
+    static func openSignInPage(in browser: Browser) {
+        guard let app = applicationURL(for: browser) else {
+            NSWorkspace.shared.open(signInURL)
+            return
         }
-        let cookies = try readYouTubeCookies(from: browser)
-        guard cookies.contains(where: { $0.name == "SAPISID" || $0.name == "__Secure-3PAPISID" })
-        else { throw ImportError.noSession(browser) }
+        NSWorkspace.shared.open([signInURL], withApplicationAt: app, configuration: NSWorkspace.OpenConfiguration())
+    }
 
-        try await install(cookies)
-        Log.write("browser-import: installed \(cookies.count) cookies from \(browser.displayName)")
-        return browser
+    /// The browser's Google/YouTube session cookies, or nil when it isn't signed in.
+    /// Throws when the store can't be read at all (no Full Disk Access yet).
+    static func session(in browser: Browser) throws -> [HTTPCookie]? {
+        let cookies = try readYouTubeCookies(from: browser)
+        let signedIn = cookies.contains { $0.name == "SAPISID" || $0.name == "__Secure-3PAPISID" }
+        return signedIn ? cookies : nil
     }
 
     // MARK: Reading (per-browser adapters)
@@ -118,13 +123,27 @@ enum BrowserImport {
 
     // MARK: Installing into the engine
 
-    /// Writes the imported cookies into the account profile's WKWebView cookie store. This is
-    /// just our own web view's store — the ordinary, non-sensitive side of the operation.
-    private static func install(_ cookies: [HTTPCookie]) async throws {
+    /// Replaces the account profile's Google/YouTube cookies with the browser's, then brings
+    /// the engine up on the account profile. Only our own web view's store is written; the
+    /// browser is never modified, and signing out of the app later leaves it signed in.
+    static func install(_ cookies: [HTTPCookie], from browser: Browser) async {
         let store = Session.shared.dataStore(for: .account).httpCookieStore
+        // Drop whatever an earlier sign-in left, so two accounts' cookies never mix.
+        for old in await store.allCookies() where isGoogleDomain(old.domain) {
+            await store.deleteCookie(old)
+        }
         for cookie in cookies {
             await store.setCookie(cookie)
         }
-        WebEngine.shared.reload()
+        Log.write("browser-import: installed \(cookies.count) cookies from \(browser.displayName)")
+        if Session.shared.profile == .account {
+            WebEngine.shared.reload()
+        } else {
+            PlayerController.shared.switchProfile(to: .account)
+        }
+    }
+
+    private static func isGoogleDomain(_ domain: String) -> Bool {
+        wantedDomains.contains { domain.hasSuffix($0) }
     }
 }

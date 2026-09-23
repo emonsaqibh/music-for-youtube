@@ -25,7 +25,7 @@ struct DiagnosticsView: View {
 
     private var controls: some View {
         HStack(spacing: 10) {
-            Button("Sign in…") { AuthWindow.present() }
+            Button("Sign in…") { SignIn.start() }
             Button("Diagnostics") { Task { pageInfo = await readDiagnostics() } }
             Button("Probe home") { Task { probe = await probeHome() } }
             Button("Reload") { WebEngine.shared.reload() }

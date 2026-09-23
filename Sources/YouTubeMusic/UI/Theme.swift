@@ -17,7 +17,7 @@ enum Theme {
     static let tileCorner: CGFloat = 10
     static let shelfGap: CGFloat = 36
 
-    static let sidebarWidth: CGFloat = 206
+    static let sidebarWidth: CGFloat = 220
 }
 
 extension View {

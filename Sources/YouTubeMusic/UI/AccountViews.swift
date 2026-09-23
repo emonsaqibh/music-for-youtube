@@ -78,14 +78,14 @@ struct AccountRow: View {
 
     var body: some View {
         HStack(spacing: 10) {
-            AccountAvatar(profile: session.profile, size: 30)
+            AccountAvatar(profile: session.profile, size: 32)
 
-            VStack(alignment: .leading, spacing: 0) {
+            VStack(alignment: .leading, spacing: 1) {
                 Text(rowTitle)
-                    .font(.system(size: 13, weight: .semibold))
+                    .font(.system(size: 14, weight: .semibold))
                     .lineLimit(1)
                 Text(rowSubtitle)
-                    .font(.system(size: 11))
+                    .font(.system(size: 13))
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
             }
@@ -101,7 +101,7 @@ struct AccountRow: View {
             RoundedRectangle(cornerRadius: 10, style: .continuous)
                 .fill(Color.primary.opacity(hovering || showingSwitcher ? 0.07 : 0))
         }
-        .padding(.horizontal, 8)
+        .padding(.horizontal, 10)
         .contentShape(Rectangle())
         .onHover { hovering = $0 }
         .onTapGesture { showingSwitcher.toggle() }
@@ -111,7 +111,7 @@ struct AccountRow: View {
         }
         .animation(.easeOut(duration: 0.15), value: hovering)
         .help("Switch between your account and guest mode")
-        .padding(.bottom, 8)
+        .padding(.bottom, 12)
     }
 
     /// A remembered account counts as signed in until the page says otherwise, so the row
@@ -165,7 +165,7 @@ struct AccountSwitcher: View {
             } else {
                 actionRow("Sign In to YouTube Music…", symbol: "person.crop.circle.badge.plus") {
                     onDone()
-                    AuthWindow.present()
+                    SignIn.start()
                 }
             }
             if showsSettingsLink {
@@ -193,7 +193,7 @@ struct AccountSwitcher: View {
             if profile == .account && !session.hasAccount {
                 // Nothing to switch to yet — signing in lands in the account profile.
                 onDone()
-                AuthWindow.present()
+                SignIn.start()
                 return
             }
             onDone()

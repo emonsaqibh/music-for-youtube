@@ -65,6 +65,34 @@ enum NavProbe {
             }
         }
 
+        // --- 1c. Explore, and the pages its buttons lead to ---
+        for browseId in ["FEmusic_explore", "FEmusic_new_releases", "FEmusic_charts", "FEmusic_moods_and_genres"] {
+            if let body = await raw("browse", ["browseId": browseId]) {
+                dump(body, to: browseId + ".json")
+                logSections(try? JSON(parsing: body), page: 0, label: browseId)
+                if browseId == "FEmusic_explore", let json = try? JSON(parsing: body) {
+                    let shelves = Parse.shelves(in: json)
+                    Log.write("explore parsed: " + shelves.map { "\"\($0.title)\" buttons=\($0.buttons.count) cards=\($0.cards.count)" }
+                        .joined(separator: " | "))
+                    // Where a mood tile leads.
+                    if let mood = shelves.flatMap(\.buttons).first(where: { $0.color != nil }),
+                       let page = await raw("browse", ["browseId": mood.browseId, "params": mood.params ?? ""]) {
+                        dump(page, to: "mood_category.json")
+                        logSections(try? JSON(parsing: page), page: 0, label: "mood:" + mood.title)
+                    }
+                }
+            }
+        }
+
+        // Charts for one country, chosen the way the web app's country menu does it.
+        for country in ["US", "BD"] {
+            if let body = await raw("browse", ["browseId": "FEmusic_charts",
+                                               "formData": ["selectedValues": [country]]]) {
+                dump(body, to: "FEmusic_charts_\(country).json")
+                logSections(try? JSON(parsing: body), page: 0, label: "charts:" + country)
+            }
+        }
+
         // --- 2. Lyrics ---
         guard let track = try? await Catalog.search("Daft Punk Get Lucky", filter: .songs)
             .flatMap(\.tracks).first else { return finish("search failed") }
@@ -118,8 +146,8 @@ enum NavProbe {
     }
 
     /// One line per page: which renderer each section is, and whether we parse it.
-    private static func logSections(_ json: JSON?, page: Int) {
-        guard let json else { return Log.write("home[\(page)]: unparseable") }
+    private static func logSections(_ json: JSON?, page: Int, label: String = "home") {
+        guard let json else { return Log.write("\(label)[\(page)]: unparseable") }
         var sections: [JSON] = []
         for list in json.all("sectionListRenderer") { sections += list["contents"].arrayValue }
         for cont in json.all("sectionListContinuation") { sections += cont["contents"].arrayValue }
@@ -130,7 +158,7 @@ enum NavProbe {
             return "\(key)<\(items)>\"\(title)\""
         }
         let chips = json.all("chipCloudChipRenderer").compactMap { $0["text"].text }
-        Log.write("home[\(page)]: sections=\(sections.count) parsed=\(Parse.shelves(in: json).count) "
+        Log.write("\(label)[\(page)]: sections=\(sections.count) parsed=\(Parse.shelves(in: json).count) "
                   + (chips.isEmpty ? "" : "chips=\(chips) ") + kinds.joined(separator: " | "))
     }
 

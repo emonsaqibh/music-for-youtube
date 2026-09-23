@@ -142,10 +142,10 @@ struct PlaybackCommands: Commands {
         }
 
         CommandGroup(replacing: .help) {
-            Button("Sign in to YouTube Music…") { AuthWindow.present() }
+            Button("Sign in to YouTube Music…") { SignIn.start() }
             Button(Session.shared.isGuest ? "Switch to Account" : "Switch to Guest Mode") {
                 let session = Session.shared
-                if session.isGuest && !session.hasAccount { AuthWindow.present() }
+                if session.isGuest && !session.hasAccount { SignIn.start() }
                 else { PlayerController.shared.switchProfile(to: session.isGuest ? .account : .guest) }
             }
             .keyboardShortcut("g", modifiers: [.command, .shift])
