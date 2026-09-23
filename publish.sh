@@ -3,19 +3,15 @@
 #
 #   ./publish.sh 0.2.0-beta.2 notes.md
 #
-# - tags the current commit v<version> in this (private) repo and pushes it,
-# - creates a pre-release here with the zip.
-#
-# Going public is the owner's decision and hasn't been made: only with PUBLIC=1 does it
-# also publish to the public releases repo (which must exist first) — the Latest release
-# there is what install.sh and the in-app updater fetch.
+# - tags the current commit v<version> and pushes it,
+# - creates the GitHub pre-release with the app zipped. The repo is public: install.sh
+#   and the in-app updater pick the newest release from here.
 set -euo pipefail
 cd "$(dirname "$0")"
 
 VERSION="${1:?usage: ./publish.sh <version> <notes.md>}"
 NOTES="${2:?usage: ./publish.sh <version> <notes.md>}"
 TAG="v$VERSION"
-PUBLIC_REPO="emonsaqibh/music-for-youtube-releases"
 APP="releases/$VERSION/Music for YouTube.app"
 ASSET="Music-for-YouTube.zip"
 
@@ -30,25 +26,7 @@ echo "==> tagging $TAG"
 git tag -a "$TAG" -m "$VERSION"
 git push -q origin HEAD "$TAG"
 
-echo "==> private release"
+echo "==> release"
 gh release create "$TAG" "$STAGE/$ASSET" --verify-tag --prerelease --title "$VERSION" --notes-file "$NOTES"
 
-if [ "${PUBLIC:-}" != 1 ]; then
-    echo "==> published $VERSION (private only)"
-    exit 0
-fi
-
-echo "==> syncing installer to $PUBLIC_REPO"
-git clone -q "https://github.com/$PUBLIC_REPO.git" "$STAGE/public"
-cp install.sh "$STAGE/public/install.sh"
-cp distribution/README.md "$STAGE/public/README.md"
-if [ -n "$(git -C "$STAGE/public" status --porcelain)" ]; then
-    git -C "$STAGE/public" add -A
-    git -C "$STAGE/public" commit -qm "Installer and README for $VERSION"
-    git -C "$STAGE/public" push -q
-fi
-
-echo "==> public release"
-gh release create "$TAG" "$STAGE/$ASSET" --repo "$PUBLIC_REPO" --target main --latest \
-    --title "Music for YouTube $VERSION" --notes-file "$NOTES"
 echo "==> published $VERSION"

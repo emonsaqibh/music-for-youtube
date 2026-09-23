@@ -2,7 +2,7 @@ import AppKit
 import Foundation
 import Observation
 
-/// Keeps the installed beta up to date from the public releases repo.
+/// Keeps the installed beta up to date from the app's GitHub releases.
 ///
 /// Why the app updates itself: releases are ad-hoc signed, not notarized, so a copy
 /// downloaded in a browser is quarantined and Gatekeeper refuses to open it. A file the app
@@ -17,11 +17,8 @@ import Observation
 final class Updater {
     static let shared = Updater()
 
-    /// Public: only release zips, the installer and a README. The source repo is private.
-    static let repo = "emonsaqibh/music-for-youtube-releases"
-    /// Every release carries the app under this one name, so the installer can always
-    /// fetch `releases/latest/download/<name>`.
-    static let assetName = "Music-for-YouTube.zip"
+    /// The app's own (public) repository; each GitHub release carries the app as a zip.
+    static let repo = "emonsaqibh/music-for-youtube"
 
     struct Release: Equatable {
         var version: String
@@ -98,20 +95,30 @@ final class Updater {
         }
     }
 
+    /// The newest release by version. Betas are GitHub pre-releases, which the API's
+    /// `releases/latest` skips, so this reads the list and picks the highest itself.
     private static func fetchLatest() async throws -> Release {
-        var request = URLRequest(url: URL(string: "https://api.github.com/repos/\(repo)/releases/latest")!)
+        var request = URLRequest(url: URL(string: "https://api.github.com/repos/\(repo)/releases?per_page=30")!)
         request.setValue("application/vnd.github+json", forHTTPHeaderField: "Accept")
         let (data, response) = try await URLSession.shared.data(for: request)
         guard (response as? HTTPURLResponse)?.statusCode == 200,
-              let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let tag = json["tag_name"] as? String,
-              let page = (json["html_url"] as? String).flatMap(URL.init(string:)),
-              let assets = json["assets"] as? [[String: Any]],
-              let zip = assets.first(where: { $0["name"] as? String == assetName })?["browser_download_url"] as? String,
-              let zipURL = URL(string: zip)
+              let list = try JSONSerialization.jsonObject(with: data) as? [[String: Any]]
         else { throw UpdateError.noRelease }
-        let version = tag.hasPrefix("v") ? String(tag.dropFirst()) : tag
-        return Release(version: version, notes: json["body"] as? String ?? "", zip: zipURL, page: page)
+
+        let releases: [Release] = list.compactMap { json in
+            guard json["draft"] as? Bool != true,
+                  let tag = json["tag_name"] as? String,
+                  let page = (json["html_url"] as? String).flatMap(URL.init(string:)),
+                  let assets = json["assets"] as? [[String: Any]],
+                  let zip = assets.first(where: { ($0["name"] as? String)?.hasSuffix(".zip") == true })?["browser_download_url"] as? String,
+                  let zipURL = URL(string: zip) else { return nil }
+            let version = tag.hasPrefix("v") ? String(tag.dropFirst()) : tag
+            return Release(version: version, notes: json["body"] as? String ?? "", zip: zipURL, page: page)
+        }
+        guard let newest = releases.max(by: { Version($0.version) < Version($1.version) }) else {
+            throw UpdateError.noRelease
+        }
+        return newest
     }
 
     // MARK: Installing
@@ -126,7 +133,7 @@ final class Updater {
                 .appending(path: "MusicForYouTube-update-\(UUID().uuidString)", directoryHint: .isDirectory)
             try FileManager.default.createDirectory(at: work, withIntermediateDirectories: true)
             let (download, _) = try await URLSession.shared.download(from: release.zip)
-            let zip = work.appending(path: Self.assetName)
+            let zip = work.appending(path: "update.zip")
             try FileManager.default.moveItem(at: download, to: zip)
 
             state = .installing

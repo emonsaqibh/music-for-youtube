@@ -1,7 +1,7 @@
 #!/bin/bash
 # Installs Music for YouTube into /Applications and opens it.
 #
-#   curl -fsSL https://raw.githubusercontent.com/emonsaqibh/music-for-youtube-releases/main/install.sh | bash
+#   curl -fsSL https://raw.githubusercontent.com/emonsaqibh/music-for-youtube/main/install.sh | bash
 #   … | bash -s -- 0.2.0-beta.2      (a specific version)
 #
 # Why a script rather than a download link: the app isn't notarized by Apple, and macOS
@@ -10,8 +10,7 @@
 # app keeps itself up to date.
 set -euo pipefail
 
-REPO="emonsaqibh/music-for-youtube-releases"
-ASSET="Music-for-YouTube.zip"
+REPO="emonsaqibh/music-for-youtube"
 APP_NAME="Music for YouTube"
 DEST="${DEST:-/Applications}"
 
@@ -23,18 +22,30 @@ fail() { printf 'error: %s\n' "$1" >&2; exit 1; }
 major="$(sw_vers -productVersion | cut -d. -f1)"
 [ "$major" -ge 26 ] || fail "this app needs macOS 26 or later (you have $(sw_vers -productVersion))."
 
-if [ -n "${1:-}" ]; then
-    URL="https://github.com/$REPO/releases/download/v${1#v}/$ASSET"
-else
-    URL="https://github.com/$REPO/releases/latest/download/$ASSET"
-fi
-
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
 
-say "Downloading ${APP_NAME}…"
-curl -fL --progress-bar "$URL" -o "$TMP/$ASSET" || fail "couldn't download $URL"
-ditto -x -k "$TMP/$ASSET" "$TMP/unzipped"
+# Which release: the one asked for, or the newest. Betas are GitHub pre-releases, which
+# "releases/latest" skips, so take the first of the list (newest first) instead.
+# plutil reads JSON, so this needs nothing beyond what macOS ships with.
+if [ -n "${1:-}" ]; then
+    API="https://api.github.com/repos/$REPO/releases/tags/v${1#v}"; P=""
+else
+    API="https://api.github.com/repos/$REPO/releases?per_page=1"; P="0."
+fi
+curl -fsSL "$API" -o "$TMP/release.json" || fail "couldn't reach GitHub ($API)"
+field() { plutil -extract "$P$1" raw -o - "$TMP/release.json" 2>/dev/null; }
+TAG="$(field tag_name)" || fail "no release found"
+URL=""
+for i in 0 1 2 3 4 5 6 7 8 9; do
+    name="$(field "assets.$i.name")" || break
+    case "$name" in *.zip) URL="$(field "assets.$i.browser_download_url")"; break ;; esac
+done
+[ -n "$URL" ] || fail "release $TAG has no app zip"
+
+say "Downloading ${APP_NAME} ${TAG#v}…"
+curl -fL --progress-bar "$URL" -o "$TMP/app.zip" || fail "couldn't download $URL"
+ditto -x -k "$TMP/app.zip" "$TMP/unzipped"
 APP="$TMP/unzipped/$APP_NAME.app"
 [ -d "$APP" ] || fail "the download didn't contain $APP_NAME.app"
 codesign --verify --deep "$APP" 2>/dev/null || fail "the downloaded app failed its signature check"
@@ -47,7 +58,7 @@ if pgrep -f "$TARGET/Contents/MacOS/YouTubeMusic" >/dev/null; then
     for _ in $(seq 1 25); do pgrep -f "$TARGET/Contents/MacOS/YouTubeMusic" >/dev/null || break; sleep 0.2; done
 fi
 
-say "Installing to $DEST…"
+say "Installing to ${DEST}…"
 rm -rf "$TARGET"
 ditto "$APP" "$TARGET"
 version="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$TARGET/Contents/Info.plist")"

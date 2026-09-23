@@ -3,6 +3,26 @@
 A native macOS client for YouTube Music, built with SwiftUI and macOS 26's Liquid Glass
 components, laid out like Apple Music.
 
+## Install
+
+Open **Terminal** and paste:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/emonsaqibh/music-for-youtube/main/install.sh | bash
+```
+
+It downloads the newest release, puts it in Applications and opens it; after that the app
+updates itself (an **Update Available** card in the sidebar, or **Check for Updates…**).
+Needs macOS 26 on Apple silicon.
+
+*Why Terminal:* the app isn't notarized by Apple, so macOS refuses to open a copy
+downloaded in a browser ("Apple could not verify…"). Terminal downloads aren't flagged,
+so it opens normally. To use a zip from [Releases](../../releases) instead: move the app to
+Applications, try to open it once, then **System Settings › Privacy & Security › Open Anyway**.
+
+Music for YouTube is an independent project, not affiliated with or endorsed by YouTube or
+Google. YouTube and YouTube Music are trademarks of Google LLC.
+
 ## How it works
 
 YouTube Music has no public playback API, and extracting stream URLs breaks every time
@@ -74,16 +94,13 @@ Modelled on Music.app on macOS 26 rather than on an older Apple Music:
 ./build.sh          # → build/Music for YouTube Dev.app
 ./run.sh            # build, then launch (dev build)
 ./release.sh 0.2.0-beta.2   # freeze a beta → releases/ + /Applications
-./install.sh                # install the newest GitHub release (see below)
+./install.sh                # install the newest GitHub release
 ```
 
 Requires Xcode 26 and macOS 26+. The app is ad-hoc signed and unsandboxed, so it runs
 locally without a developer account.
 
-Released builds are ad-hoc signed, not notarized, so a copy downloaded from GitHub in a
-browser is quarantined and Gatekeeper refuses to open it on macOS 15+. `install.sh`
-downloads with the GitHub CLI instead (no quarantine). Otherwise: `xattr -dr
-com.apple.quarantine` on the app, or System Settings › Privacy & Security › Open Anyway.
+Released builds are ad-hoc signed, not notarized — see Install above.
 
 ## First run
 

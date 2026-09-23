@@ -52,12 +52,11 @@ Gatekeeper blocks it on macOS 15+ ("Apple could not verify…"). Locally, `relea
 installs directly (no quarantine), which is how this Mac gets betas. `./publish.sh <ver>
 <notes>` tags and creates the private GitHub pre-release.
 
-**Public distribution is built but dormant — everything stays private until the owner
-says otherwise.** `install.sh` (curl one-liner) and `Support/Updater.swift` (self-update,
-off in dev) both fetch from `emonsaqibh/music-for-youtube-releases`, which does not exist
-now (it was created without the owner's go-ahead and deleted). Going public = recreate
-that repo, then `PUBLIC=1 ./publish.sh`. Until then update checks just fail quietly. Real
-fix for Gatekeeper = Developer ID + notarization (paid account, none yet).
+**The repo is public (owner's call, 2026-09-23).** `install.sh` is the curl one-liner in the
+README; it and `Support/Updater.swift` (self-update, off in dev) read this repo's release
+list and take the newest version (betas are pre-releases, so not `releases/latest`).
+0.2.0-beta.2's updater still points at a deleted repo, so that build can't update itself.
+Real fix for Gatekeeper = Developer ID + notarization (paid account, none yet).
 
 All development and testing uses the **dev** build. A release is frozen: `release.sh`
 builds in release config, saves the app and a `source.tar.gz` snapshot under
