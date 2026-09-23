@@ -55,13 +55,13 @@ installs directly (no quarantine), which is how this Mac gets betas. `./publish.
 **The repo is public (owner's call, 2026-09-23).** `install.sh` is the curl one-liner in the
 README; it and `Support/Updater.swift` (self-update, off in dev) read this repo's release
 list and take the newest version (betas are pre-releases, so not `releases/latest`).
-0.2.0-beta.2's updater still points at a deleted repo, so that build can't update itself.
+0.2.0-beta.2's updater points at a deleted repo; beta.3+ update themselves.
 Real fix for Gatekeeper = Developer ID + notarization (paid account, none yet).
 
 All development and testing uses the **dev** build. A release is frozen: `release.sh`
 builds in release config, saves the app and a `source.tar.gz` snapshot under
 `releases/<version>/`, installs it to `/Applications`, and refuses to reuse a version.
-Current beta: **0.2.0-beta.1** (2026-09-23; first was 0.1.0-beta.1).
+Current beta: **0.2.0-beta.3** (2026-09-23) — the first whose in-app updater works.
 
 ### Launch flags
 
