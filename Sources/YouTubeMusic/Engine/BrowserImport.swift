@@ -10,8 +10,8 @@ import WebKit
 /// secure" blocks. Reusing an already-established, already-trusted browser session sidesteps
 /// the login flow entirely — the cookies come from a session Google already trusts.
 ///
-/// This reads only the Google/YouTube auth cookies, only from the one browser the user has
-/// set as their system default, and only when the user explicitly asks. It never touches
+/// This reads only the Google/YouTube auth cookies, only from the browser the user picks
+/// (their default one, unless they choose another), and only when the user explicitly asks. It never touches
 /// other sites' cookies or other browsers. The user chose this over the in-app window
 /// (2026-09-23) knowing it is the one place the app copies a session.
 ///
@@ -35,6 +35,7 @@ enum BrowserImport {
         case arc     = "company.thebrowser.Browser"
         case vivaldi = "com.vivaldi.Vivaldi"
         case opera   = "com.operasoftware.Opera"
+        case firefox = "org.mozilla.firefox"
 
         var displayName: String {
             switch self {
@@ -45,13 +46,20 @@ enum BrowserImport {
             case .arc:     "Arc"
             case .vivaldi: "Vivaldi"
             case .opera:   "Opera"
+            case .firefox: "Firefox"
             }
         }
 
-        /// Safari keeps a documented binary cookie file; the rest are Chromium and keep an
-        /// SQLite store whose values are encrypted with a per-app Keychain key.
-        var engine: Engine { self == .safari ? .safari : .chromium }
-        enum Engine { case safari, chromium }
+        /// Safari keeps a documented binary cookie file (behind Full Disk Access); Chromium
+        /// browsers an SQLite store encrypted with a Keychain key; Firefox a plain SQLite store.
+        var engine: Engine {
+            switch self {
+            case .safari: .safari
+            case .firefox: .firefox
+            default: .chromium
+            }
+        }
+        enum Engine { case safari, chromium, firefox }
     }
 
     /// The user's system default browser, if it's one we can read.
@@ -63,22 +71,32 @@ enum BrowserImport {
 
     enum ImportError: LocalizedError {
         case notReadable(Browser)
+        case keychainDenied(Browser)
         case notImplemented(Browser)
 
         var errorDescription: String? {
             switch self {
-            case .notReadable(let b):
-                "Couldn’t read \(b.displayName)’s sign-in. Allow Music for YouTube under "
+            case .notReadable(let b) where b == .safari:
+                "Couldn’t read Safari’s sign-in. Allow Music for YouTube under "
                     + "System Settings › Privacy & Security › Full Disk Access."
+            case .notReadable(let b):
+                "Couldn’t find \(b.displayName)’s saved sign-in. Open \(b.displayName) once, then try again."
+            case .keychainDenied(let b):
+                "macOS didn’t allow access to \(b.displayName)’s sign-in key."
             case .notImplemented(let b):
                 "Picking up a sign-in from \(b.displayName) isn’t supported yet."
             }
         }
     }
 
-    /// Browsers the sign-in can be handed over from today. Chromium stores are encrypted
-    /// with a Keychain key and not read yet; those browsers get the in-app window.
-    static func isSupported(_ browser: Browser) -> Bool { browser.engine == .safari }
+    static func isSupported(_ browser: Browser) -> Bool { true }
+
+    /// Every supported browser installed on this Mac, the default one first.
+    static var installedBrowsers: [Browser] {
+        let installed = Browser.allCases.filter { applicationURL(for: $0) != nil }
+        guard let preferred = defaultBrowser, installed.contains(preferred) else { return installed }
+        return [preferred] + installed.filter { $0 != preferred }
+    }
 
     /// Where the default browser app lives, to open the sign-in page in it.
     static func applicationURL(for browser: Browser) -> URL? {
@@ -118,6 +136,7 @@ enum BrowserImport {
         switch browser.engine {
         case .safari:   try SafariCookies.read(domains: wantedDomains)
         case .chromium: try ChromiumCookies.read(browser: browser, domains: wantedDomains)
+        case .firefox:  try FirefoxCookies.read(domains: wantedDomains)
         }
     }
 

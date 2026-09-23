@@ -2,28 +2,51 @@ import AppKit
 import Observation
 import SwiftUI
 
-/// Every "Sign In" in the app lands here. Signing in happens in the user's own default
-/// browser, where Google already knows them; the app then picks the session up. Only a
-/// browser we can't read from falls back to the in-app window.
+/// Every "Sign In" in the app lands here. Signing in happens in a browser the user already
+/// uses, where Google knows them; the app then picks the session up. In order:
+///
+/// 1. the default browser, if it's one we can read (Safari, Chromium browsers, Firefox);
+/// 2. otherwise a choice of the supported browsers that are installed;
+/// 3. only with none installed — or on request — the in-app sign-in window.
 @MainActor
 enum SignIn {
     static func start() {
-        guard let browser = BrowserImport.defaultBrowser, BrowserImport.isSupported(browser) else {
+        let installed = BrowserImport.installedBrowsers
+        guard !installed.isEmpty else {
             AuthWindow.present()
             return
         }
-        BrowserSignInWindow.present(browser: browser)
+        if let preferred = BrowserImport.defaultBrowser, installed.contains(preferred) {
+            BrowserSignInWindow.present(browser: preferred)
+        } else {
+            BrowserSignInWindow.present(browser: nil)
+        }
+    }
+
+    /// Straight to the browser list — for when the YouTube account lives in a browser other
+    /// than the default one (the default route finishes on its own before there's a chance
+    /// to switch).
+    static func chooseBrowser() {
+        guard !BrowserImport.installedBrowsers.isEmpty else { return AuthWindow.present() }
+        BrowserSignInWindow.present(browser: nil)
     }
 }
 
-/// Drives the hand-over: get read access to the browser if needed, open Google's sign-in
-/// there, and watch for the session to appear.
+/// Drives the hand-over: let the user pick a browser if needed, get access to its sign-in
+/// (Full Disk Access for Safari, a Keychain prompt for Chromium browsers), open Google's
+/// sign-in there, and watch for the session to appear.
 @MainActor
 @Observable
 final class BrowserSignInModel {
     enum Phase: Equatable {
+        /// Choosing which browser to sign in with.
+        case choosing
         case checking
-        /// macOS hasn't granted access to the browser's cookie store yet.
+        /// Chromium: the macOS Keychain prompt for the browser's cookie key is up.
+        case unlocking
+        /// Chromium: the user declined the Keychain prompt.
+        case keychainDenied
+        /// Safari: Full Disk Access hasn't been granted yet.
         case needsAccess
         /// The sign-in page is open in the browser; waiting for the session.
         case waiting
@@ -31,24 +54,39 @@ final class BrowserSignInModel {
         case done
     }
 
-    let browser: BrowserImport.Browser
-    private(set) var phase: Phase = .checking
+    private(set) var browser: BrowserImport.Browser?
+    private(set) var phase: Phase = .choosing
+    let installed = BrowserImport.installedBrowsers
     private var openedBrowser = false
     private var watcher: Task<Void, Never>?
 
-    init(browser: BrowserImport.Browser) {
+    init(browser: BrowserImport.Browser?) {
         self.browser = browser
     }
 
     func start() {
-        watcher?.cancel()
+        guard let browser else { phase = .choosing; return }
+        use(browser)
+    }
+
+    /// Starts over with `browser`.
+    func use(_ browser: BrowserImport.Browser) {
+        stop()
+        self.browser = browser
+        openedBrowser = false
         watcher = Task { [weak self] in
+            guard let self else { return }
+            if browser.engine == .chromium, !(await self.unlock(browser)) { return }
             while !Task.isCancelled {
-                guard let self else { return }
-                if await self.check() { return }
+                if await self.check(browser) { return }
                 try? await Task.sleep(for: .seconds(2))
             }
         }
+    }
+
+    func chooseAnother() {
+        stop()
+        phase = .choosing
     }
 
     func stop() {
@@ -57,18 +95,43 @@ final class BrowserSignInModel {
     }
 
     func reopenBrowser() {
-        BrowserImport.openSignInPage(in: browser)
+        if let browser { BrowserImport.openSignInPage(in: browser) }
+    }
+
+    /// Asks the Keychain for a Chromium browser's cookie key — once; the macOS prompt is
+    /// never raised again by the polling that follows.
+    private func unlock(_ browser: BrowserImport.Browser) async -> Bool {
+        if ChromiumCookies.isUnlocked(browser) { return true }
+        phase = .unlocking
+        let result = await Task.detached { () -> Bool in
+            do { try ChromiumCookies.unlock(browser); return true } catch { return false }
+        }.value
+        if !result {
+            Log.write("browser-signin: \(browser.displayName) keychain access declined or missing")
+            phase = .keychainDenied
+        }
+        return result
     }
 
     /// One look at the browser. True once signed in (or given up).
-    private func check() async -> Bool {
+    private func check(_ browser: BrowserImport.Browser) async -> Bool {
         let cookies: [HTTPCookie]?
         do {
             cookies = try BrowserImport.session(in: browser)
         } catch {
-            // Keep watching: granting Full Disk Access takes effect without a relaunch.
-            if phase != .needsAccess { Log.write("browser-signin: \(browser.displayName) not readable yet") }
-            phase = .needsAccess
+            if browser == .safari {
+                // Keep watching: granting Full Disk Access takes effect without a relaunch.
+                if phase != .needsAccess { Log.write("browser-signin: Safari not readable yet") }
+                phase = .needsAccess
+            } else {
+                Log.write("browser-signin: \(browser.displayName) not readable — \(error.localizedDescription)")
+                // Nothing on disk yet (a never-opened browser): open it and keep watching.
+                if !openedBrowser {
+                    openedBrowser = true
+                    BrowserImport.openSignInPage(in: browser)
+                }
+                phase = .waiting
+            }
             return false
         }
 
@@ -100,7 +163,7 @@ final class BrowserSignInWindow: NSObject, NSWindowDelegate {
     private let window: NSWindow
     private let model: BrowserSignInModel
 
-    static func present(browser: BrowserImport.Browser) {
+    static func present(browser: BrowserImport.Browser?) {
         if let existing = shared {
             existing.window.makeKeyAndOrderFront(nil)
             NSApp.activate(ignoringOtherApps: true)
@@ -116,7 +179,7 @@ final class BrowserSignInWindow: NSObject, NSWindowDelegate {
 
     static func close() { shared?.window.close() }
 
-    private init(browser: BrowserImport.Browser) {
+    private init(browser: BrowserImport.Browser?) {
         model = BrowserSignInModel(browser: browser)
         window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 440, height: 360),
@@ -127,7 +190,9 @@ final class BrowserSignInWindow: NSObject, NSWindowDelegate {
         window.isMovableByWindowBackground = true
         window.isReleasedWhenClosed = false
         super.init()
-        window.contentView = NSHostingView(rootView: BrowserSignInView(model: model))
+        let host = NSHostingView(rootView: BrowserSignInView(model: model))
+        host.sizingOptions = [.preferredContentSize]
+        window.contentView = host
         window.delegate = self
     }
 
@@ -140,7 +205,7 @@ final class BrowserSignInWindow: NSObject, NSWindowDelegate {
 private struct BrowserSignInView: View {
     let model: BrowserSignInModel
 
-    private var browserName: String { model.browser.displayName }
+    private var browserName: String { model.browser?.displayName ?? "your browser" }
     private var appName: String {
         Bundle.main.infoDictionary?["CFBundleDisplayName"] as? String ?? "Music for YouTube"
     }
@@ -163,13 +228,11 @@ private struct BrowserSignInView: View {
             Image(nsImage: NSApp.applicationIconImage)
                 .resizable()
                 .frame(width: 56, height: 56)
-            Image(systemName: "arrow.left.arrow.right")
-                .font(.system(size: 14, weight: .semibold))
-                .foregroundStyle(.tertiary)
-            if let app = BrowserImport.applicationURL(for: model.browser) {
-                Image(nsImage: NSWorkspace.shared.icon(forFile: app.path))
-                    .resizable()
-                    .frame(width: 56, height: 56)
+            if let browser = model.browser, model.phase != .choosing {
+                Image(systemName: "arrow.left.arrow.right")
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(.tertiary)
+                BrowserIcon(browser: browser, size: 56)
             }
         }
     }
@@ -177,12 +240,47 @@ private struct BrowserSignInView: View {
     @ViewBuilder
     private var content: some View {
         switch model.phase {
+        case .choosing:
+            text(title: "Sign in with your browser",
+                 body: "Pick the browser you use YouTube in. You sign in there as usual, and "
+                     + "\(appName) picks it up — no signing in inside the app.")
+            VStack(spacing: 6) {
+                ForEach(model.installed, id: \.self) { browser in
+                    BrowserRow(browser: browser, isDefault: browser == BrowserImport.defaultBrowser) {
+                        model.use(browser)
+                    }
+                }
+            }
+            fallback
+
         case .checking:
             status("Checking \(browserName)…")
 
+        case .unlocking:
+            text(title: "Allow access to \(browserName)’s sign-in",
+                 body: "\(browserName) keeps its sign-in locked with a key in your Keychain. macOS "
+                     + "is asking whether \(appName) may use it — choose **Always Allow**. Only your "
+                     + "Google and YouTube sign-in is read.")
+            status("Waiting for your answer…")
+            otherBrowser
+
+        case .keychainDenied:
+            text(title: "\(browserName)’s sign-in stayed locked",
+                 body: "Without that permission \(appName) can’t read \(browserName)’s sign-in. Try "
+                     + "again and choose Always Allow, or pick another browser.")
+            HStack {
+                Button("Use Another Browser") { model.chooseAnother() }
+                Spacer()
+                Button("Try Again") { if let browser = model.browser { model.use(browser) } }
+                    .buttonStyle(.glassProminent)
+                    .tint(Theme.accent)
+                    .keyboardShortcut(.defaultAction)
+            }
+            fallback
+
         case .needsAccess:
-            text(title: "Allow access to your \(browserName) sign-in",
-                 body: "You sign in to YouTube in \(browserName), and \(appName) picks it up — no "
+            text(title: "Allow access to your Safari sign-in",
+                 body: "You sign in to YouTube in Safari, and \(appName) picks it up — no "
                      + "signing in inside the app. macOS asks you to allow this under Full Disk "
                      + "Access. Only your Google and YouTube sign-in is read.")
             VStack(alignment: .leading, spacing: 6) {
@@ -204,7 +302,7 @@ private struct BrowserSignInView: View {
                 .tint(Theme.accent)
                 .keyboardShortcut(.defaultAction)
             }
-            fallback
+            otherBrowser
 
         case .waiting:
             text(title: "Sign in with \(browserName)",
@@ -217,7 +315,7 @@ private struct BrowserSignInView: View {
                 Spacer()
                 Button("Open \(browserName) Again") { model.reopenBrowser() }
             }
-            fallback
+            otherBrowser
 
         case .signingIn:
             status("Signing you in…")
@@ -235,7 +333,7 @@ private struct BrowserSignInView: View {
             Text(title)
                 .font(.system(size: 17, weight: .bold))
                 .multilineTextAlignment(.center)
-            Text(body)
+            Text(.init(body))
                 .font(.system(size: 13))
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
@@ -264,7 +362,19 @@ private struct BrowserSignInView: View {
         }
     }
 
-    /// The embedded window stays available for when the browser route can't be used.
+    /// Switch browsers, when more than one is installed; the in-app window after that.
+    @ViewBuilder
+    private var otherBrowser: some View {
+        if model.installed.count > 1 {
+            Button("Use a different browser") { model.chooseAnother() }
+                .buttonStyle(.link)
+                .font(.system(size: 12))
+        } else {
+            fallback
+        }
+    }
+
+    /// The embedded window: the last resort, for when no browser route works.
     private var fallback: some View {
         Button("Sign in inside the app instead") {
             BrowserSignInWindow.close()
@@ -272,5 +382,59 @@ private struct BrowserSignInView: View {
         }
         .buttonStyle(.link)
         .font(.system(size: 12))
+        .foregroundStyle(.secondary)
+    }
+}
+
+/// One browser in the chooser: its icon, name, and a "Default" tag for the system default.
+private struct BrowserRow: View {
+    let browser: BrowserImport.Browser
+    let isDefault: Bool
+    let action: () -> Void
+
+    @State private var hovering = false
+    private let shape = RoundedRectangle(cornerRadius: 10, style: .continuous)
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 12) {
+                BrowserIcon(browser: browser, size: 32)
+                Text(browser.displayName)
+                    .font(.system(size: 14, weight: .semibold))
+                if isDefault {
+                    Text("Default")
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(.secondary)
+                        .padding(.horizontal, 7)
+                        .padding(.vertical, 2)
+                        .background(Capsule().fill(Color.primary.opacity(0.08)))
+                }
+                Spacer()
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 11, weight: .bold))
+                    .foregroundStyle(.tertiary)
+            }
+            .padding(.horizontal, 12)
+            .frame(height: 48)
+            .background(shape.fill(Color.primary.opacity(hovering ? 0.09 : 0.05)))
+            .contentShape(shape)
+        }
+        .buttonStyle(.plain)
+        .onHover { hovering = $0 }
+    }
+}
+
+private struct BrowserIcon: View {
+    let browser: BrowserImport.Browser
+    let size: CGFloat
+
+    var body: some View {
+        if let app = BrowserImport.applicationURL(for: browser) {
+            Image(nsImage: NSWorkspace.shared.icon(forFile: app.path))
+                .resizable()
+                .frame(width: size, height: size)
+        } else {
+            Image(systemName: "globe").font(.system(size: size * 0.6))
+        }
     }
 }

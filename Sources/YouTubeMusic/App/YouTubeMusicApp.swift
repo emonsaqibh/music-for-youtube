@@ -90,18 +90,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             Task { await SelfTest.run() }
             return
         }
-        // `--install-update`: check and install straight away, no questions — for testing
-        // the update path end to end.
-        if CommandLine.arguments.contains("--install-update") {
-            Task {
-                if await Updater.shared.check() { await Updater.shared.install() }
-                else { Log.write("update: --install-update found nothing to install"); NSApp.terminate(nil) }
-            }
-            return
-        }
         NSApp.activate(ignoringOtherApps: true)
-        if DemoMode.isRequested { Task { await DemoMode.start() } }
-        else { Updater.shared.startBackgroundChecks() }
+        if DemoMode.isRequested {
+            Task { await DemoMode.start() }
+            if Updater.isDemoing { Task { await Updater.shared.check() } }
+        } else {
+            Updater.shared.applyAutomaticChecks()
+        }
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
@@ -157,6 +152,7 @@ struct PlaybackCommands: Commands {
 
         CommandGroup(replacing: .help) {
             Button("Sign in to YouTube Music…") { SignIn.start() }
+            Button("Sign In with Another Browser…") { SignIn.chooseBrowser() }
             Button(Session.shared.isGuest ? "Switch to Account" : "Switch to Guest Mode") {
                 let session = Session.shared
                 if session.isGuest && !session.hasAccount { SignIn.start() }

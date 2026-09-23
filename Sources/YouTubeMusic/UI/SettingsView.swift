@@ -10,7 +10,7 @@ struct SettingsView: View {
         TabView(selection: $tab) {
             // Each pane sized to its content; the window resizes between them as System
             // Settings' panes do.
-            Tab("General", systemImage: "gearshape", value: "general") { GeneralPane().frame(height: 400) }
+            Tab("General", systemImage: "gearshape", value: "general") { GeneralPane().frame(height: 650) }
             Tab("Appearance", systemImage: "paintpalette", value: "appearance") { AppearancePane().frame(height: 560) }
             Tab("Playback", systemImage: "play.circle", value: "playback") { PlaybackPane().frame(height: 380) }
             Tab("Account", systemImage: "person.crop.circle", value: "account") { AccountPane().frame(height: 440) }
@@ -44,6 +44,8 @@ private struct GeneralPane: View {
             Section("Sidebar") {
                 Toggle("Show playlists", isOn: $settings.showsPlaylistsInSidebar)
             }
+
+            UpdateSettingsSection()
 
             Section {
                 HStack {

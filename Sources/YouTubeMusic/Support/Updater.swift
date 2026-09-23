@@ -2,16 +2,15 @@ import AppKit
 import Foundation
 import Observation
 
-/// Keeps the installed beta up to date from the app's GitHub releases.
+/// Tells the user when a newer release is out, and how to install it.
 ///
-/// Why the app updates itself: releases are ad-hoc signed, not notarized, so a copy
-/// downloaded in a browser is quarantined and Gatekeeper refuses to open it. A file the app
-/// downloads with URLSession is not quarantined (the app doesn't opt in with
-/// `LSFileQuarantineEnabled`), so once someone has the app, every later version installs
-/// without Gatekeeper getting involved.
+/// Installing is always the README's one-line script, run in Terminal: the app only checks
+/// and hands over the command. (The script downloads with curl, so the new copy isn't
+/// quarantined and opens without Gatekeeper's "could not verify" block.)
 ///
-/// The dev build never updates — it is replaced by `./build.sh`, and must not be swapped
-/// for a release while being worked on.
+/// Checks happen shortly after launch, then every six hours while the app runs, and when
+/// the app comes back to the front after six hours or more — the time of the last check is
+/// kept, so relaunching doesn't ask again. Off in the dev build, which `./build.sh` replaces.
 @MainActor
 @Observable
 final class Updater {
@@ -20,10 +19,16 @@ final class Updater {
     /// The app's own (public) repository; each GitHub release carries the app as a zip.
     static let repo = "emonsaqibh/music-for-youtube"
 
+    /// The README's one-line installer. Run in Terminal, it quits the app, installs the
+    /// newest release and reopens it; sign-in and settings are kept.
+    static let installCommand =
+        "curl -fsSL https://raw.githubusercontent.com/\(repo)/main/install.sh | bash"
+
+    static let checkInterval: TimeInterval = 6 * 60 * 60
+
     struct Release: Equatable {
         var version: String
         var notes: String
-        var zip: URL
         var page: URL
     }
 
@@ -31,17 +36,23 @@ final class Updater {
         case idle
         case checking
         case upToDate
-        case downloading
-        case installing
         case failed(String)
     }
 
     private(set) var available: Release?
     private(set) var state: State = .idle
-    /// The user dismissed the offer for this version; don't raise it again this launch.
+    private(set) var lastChecked: Date? {
+        didSet { UserDefaults.standard.set(lastChecked, forKey: Self.lastCheckedKey) }
+    }
+    /// The user closed the sidebar card for this version; don't raise it again this launch.
     private(set) var dismissedVersion: String?
 
-    var isEnabled: Bool { !BuildFlavor.isDev }
+    private static let lastCheckedKey = "updates.lastChecked"
+
+    /// Off in the dev build — except under `--demo-update`, which shows the update card in a
+    /// demo run (ephemeral session) to check how it looks.
+    var isEnabled: Bool { !BuildFlavor.isDev || Self.isDemoing }
+    static let isDemoing = CommandLine.arguments.contains("--demo-update")
 
     var currentVersion: String {
         Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0"
@@ -53,21 +64,44 @@ final class Updater {
         return available.version != dismissedVersion
     }
 
-    private var timer: Task<Void, Never>?
-
-    /// Checks shortly after launch, then once a day.
-    func startBackgroundChecks() {
-        guard isEnabled, timer == nil else { return }
-        timer = Task { [weak self] in
-            try? await Task.sleep(for: .seconds(8))
-            while !Task.isCancelled {
-                await self?.check()
-                try? await Task.sleep(for: .seconds(24 * 60 * 60))
-            }
-        }
+    private init() {
+        lastChecked = UserDefaults.standard.object(forKey: Self.lastCheckedKey) as? Date
     }
 
     func dismiss() { dismissedVersion = available?.version }
+
+    // MARK: Automatic checks
+
+    private var timer: Task<Void, Never>?
+    private var activation: NSObjectProtocol?
+
+    /// Starts (or stops, when the setting is off) the automatic checks.
+    func applyAutomaticChecks() {
+        timer?.cancel()
+        timer = nil
+        if let activation { NotificationCenter.default.removeObserver(activation) }
+        activation = nil
+        guard isEnabled, AppSettings.shared.checksForUpdates else { return }
+
+        timer = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(5))
+            while !Task.isCancelled {
+                await self?.checkIfDue()
+                try? await Task.sleep(for: .seconds(Self.checkInterval))
+            }
+        }
+        activation = NotificationCenter.default.addObserver(
+            forName: NSApplication.didBecomeActiveNotification, object: nil, queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor in await self?.checkIfDue() }
+        }
+    }
+
+    private func checkIfDue() async {
+        if let lastChecked, Date().timeIntervalSince(lastChecked) < Self.checkInterval,
+           available == nil { return }
+        await check()
+    }
 
     // MARK: Checking
 
@@ -75,28 +109,30 @@ final class Updater {
     /// exists.
     @discardableResult
     func check() async -> Bool {
-        guard isEnabled, state != .downloading, state != .installing else { return false }
+        guard isEnabled, state != .checking else { return available != nil }
         state = .checking
         do {
             let release = try await Self.fetchLatest()
+            lastChecked = Date()
             if Version(release.version) > Version(currentVersion) {
+                if available != release { Log.write("update: \(release.version) available (running \(currentVersion))") }
                 available = release
                 state = .idle
-                Log.write("update: \(release.version) available (running \(currentVersion))")
                 return true
             }
             available = nil
             state = .upToDate
             return false
         } catch {
-            state = .failed(error.localizedDescription)
+            state = .failed("Couldn’t reach GitHub. Check your connection and try again.")
             Log.write("update: check failed — \(error.localizedDescription)")
             return false
         }
     }
 
-    /// The newest release by version. Betas are GitHub pre-releases, which the API's
-    /// `releases/latest` skips, so this reads the list and picks the highest itself.
+    /// The newest release by version that has the app attached (so the install command
+    /// will work). Betas are GitHub pre-releases, which `releases/latest` skips, so this
+    /// reads the list and picks the highest itself.
     private static func fetchLatest() async throws -> Release {
         guard let list = try await getJSON("https://api.github.com/repos/\(repo)/releases?per_page=30")
                 as? [[String: Any]] else { throw UpdateError.noRelease }
@@ -111,18 +147,17 @@ final class Updater {
         // GitHub sometimes lags filling in a release's embedded asset list; its own assets
         // endpoint is up to date, so ask that when the list comes back without the zip.
         var assets = newest["assets"] as? [[String: Any]] ?? []
-        if zipURL(in: assets) == nil, let id = newest["id"] as? Int {
+        if !hasZip(assets), let id = newest["id"] as? Int {
             assets = try await getJSON("https://api.github.com/repos/\(repo)/releases/\(id)/assets")
                 as? [[String: Any]] ?? []
         }
-        guard let zip = zipURL(in: assets) else { throw UpdateError.noRelease }
+        guard hasZip(assets) else { throw UpdateError.noRelease }
         let version = tag.hasPrefix("v") ? String(tag.dropFirst()) : tag
-        return Release(version: version, notes: newest["body"] as? String ?? "", zip: zip, page: page)
+        return Release(version: version, notes: newest["body"] as? String ?? "", page: page)
     }
 
-    private static func zipURL(in assets: [[String: Any]]) -> URL? {
-        (assets.first { ($0["name"] as? String)?.hasSuffix(".zip") == true }?["browser_download_url"] as? String)
-            .flatMap(URL.init(string:))
+    private static func hasZip(_ assets: [[String: Any]]) -> Bool {
+        assets.contains { ($0["name"] as? String)?.hasSuffix(".zip") == true }
     }
 
     private static func getJSON(_ url: String) async throws -> Any {
@@ -133,114 +168,22 @@ final class Updater {
         return try JSONSerialization.jsonObject(with: data)
     }
 
-    // MARK: Installing
+    // MARK: Installing (in Terminal)
 
-    /// Downloads the new version, checks it is really this app, then hands over to a small
-    /// script that swaps the bundle once we have quit and opens the new one.
-    func install() async {
-        guard isEnabled, let release = available else { return }
-        do {
-            state = .downloading
-            let work = FileManager.default.temporaryDirectory
-                .appending(path: "MusicForYouTube-update-\(UUID().uuidString)", directoryHint: .isDirectory)
-            try FileManager.default.createDirectory(at: work, withIntermediateDirectories: true)
-            let (download, _) = try await URLSession.shared.download(from: release.zip)
-            let zip = work.appending(path: "update.zip")
-            try FileManager.default.moveItem(at: download, to: zip)
+    static func copyInstallCommand() {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(installCommand, forType: .string)
+    }
 
-            state = .installing
-            let unzipped = work.appending(path: "unzipped", directoryHint: .isDirectory)
-            try await Self.run("/usr/bin/ditto", ["-x", "-k", zip.path, unzipped.path])
-            let bundleName = Bundle.main.bundleURL.lastPathComponent
-            let candidates = (try? FileManager.default.contentsOfDirectory(at: unzipped, includingPropertiesForKeys: nil)) ?? []
-            guard let newApp = candidates.first(where: { $0.pathExtension == "app" }) else {
-                throw UpdateError.badDownload("no app in the download")
-            }
-            try Self.verify(newApp, expecting: release.version)
-            try await Self.run("/usr/bin/codesign", ["--verify", "--deep", newApp.path])
-
-            let target = Bundle.main.bundleURL
-            guard FileManager.default.isWritableFile(atPath: target.deletingLastPathComponent().path) else {
-                throw UpdateError.notWritable(target.deletingLastPathComponent().path)
-            }
-            Log.write("update: installing \(release.version) over \(target.path) (\(bundleName))")
-            try Self.launchSwap(newApp: newApp, target: target, work: work)
-            NSApp.terminate(nil)
-        } catch {
-            state = .failed(error.localizedDescription)
-            Log.write("update: install failed — \(error.localizedDescription)")
+    static func openTerminal() {
+        if let terminal = NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.apple.Terminal") {
+            NSWorkspace.shared.openApplication(at: terminal, configuration: NSWorkspace.OpenConfiguration())
         }
     }
 
-    /// Same bundle identifier and the version the release claims — so a mislabelled or
-    /// foreign zip is never installed over the app.
-    private static func verify(_ app: URL, expecting version: String) throws {
-        guard let info = NSDictionary(contentsOf: app.appending(path: "Contents/Info.plist")),
-              info["CFBundleIdentifier"] as? String == Bundle.main.bundleIdentifier else {
-            throw UpdateError.badDownload("the download isn't this app")
-        }
-        guard info["CFBundleShortVersionString"] as? String == version else {
-            throw UpdateError.badDownload("the download isn't version \(version)")
-        }
-    }
-
-    /// Waits for this process to exit, replaces the bundle (restoring the old one if the
-    /// copy fails), and opens the result. Runs detached, so it outlives the app.
-    private static func launchSwap(newApp: URL, target: URL, work: URL) throws {
-        let backup = work.appending(path: "previous.app")
-        let script = """
-        #!/bin/bash
-        while kill -0 \(ProcessInfo.processInfo.processIdentifier) 2>/dev/null; do sleep 0.2; done
-        if mv "\(target.path)" "\(backup.path)" && ditto "\(newApp.path)" "\(target.path)"; then
-            xattr -dr com.apple.quarantine "\(target.path)" 2>/dev/null
-        else
-            rm -rf "\(target.path)"; mv "\(backup.path)" "\(target.path)"
-        fi
-        open "\(target.path)"
-        sleep 5; rm -rf "\(work.path)"
-        """
-        let scriptURL = work.appending(path: "swap.sh")
-        try script.write(to: scriptURL, atomically: true, encoding: .utf8)
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/bin/bash")
-        process.arguments = [scriptURL.path]
-        process.standardOutput = FileHandle.nullDevice
-        process.standardError = FileHandle.nullDevice
-        try process.run()
-    }
-
-    private static func run(_ tool: String, _ arguments: [String]) async throws {
-        try await withCheckedThrowingContinuation { (done: CheckedContinuation<Void, Error>) in
-            let process = Process()
-            process.executableURL = URL(fileURLWithPath: tool)
-            process.arguments = arguments
-            process.standardOutput = FileHandle.nullDevice
-            process.standardError = FileHandle.nullDevice
-            process.terminationHandler = { p in
-                if p.terminationStatus == 0 { done.resume() }
-                else { done.resume(throwing: UpdateError.badDownload("\((tool as NSString).lastPathComponent) failed")) }
-            }
-            do { try process.run() } catch { done.resume(throwing: error) }
-        }
-    }
-
-    enum UpdateError: LocalizedError {
-        case noRelease
-        case badDownload(String)
-        case notWritable(String)
-
-        var errorDescription: String? {
-            switch self {
-            case .noRelease: "Couldn’t find a release to update to."
-            case .badDownload(let why): "The update couldn’t be used: \(why)."
-            case .notWritable(let folder): "Can’t replace the app in \(folder). Move it to Applications and try again."
-            }
-        }
-    }
+    enum UpdateError: Error { case noRelease }
 }
 
-/// A release version like "0.2.0-beta.2": numbers compared numerically, a final release
-/// newer than its betas, and beta identifiers compared piece by piece.
 struct Version: Comparable {
     private let core: [Int]
     private let prerelease: [String]

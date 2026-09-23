@@ -167,6 +167,12 @@ struct AccountSwitcher: View {
                     onDone()
                     SignIn.start()
                 }
+                if BrowserImport.installedBrowsers.count > 1 {
+                    actionRow("Sign In with Another Browser…", symbol: "safari") {
+                        onDone()
+                        SignIn.chooseBrowser()
+                    }
+                }
             }
             if showsSettingsLink {
                 actionRow("Settings…", symbol: "gearshape") {

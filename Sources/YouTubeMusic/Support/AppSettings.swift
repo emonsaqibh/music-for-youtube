@@ -70,6 +70,10 @@ final class AppSettings {
     /// How soft the Artwork colours background is: 0 (defined patches of colour) to 3
     /// (a dreamy wash).
     var artworkBlur: Int { didSet { save(artworkBlur, Keys.artworkBlur) } }
+    /// Look for a newer release at launch and every few hours (`Updater`).
+    var checksForUpdates: Bool {
+        didSet { save(checksForUpdates, Keys.checksForUpdates); Updater.shared.applyAutomaticChecks() }
+    }
     static let artworkBlurRadii: [CGFloat] = [0, 24, 50, 90]
     var lyricsSize: LyricsSize { didSet { save(lyricsSize.rawValue, Keys.lyricsSize) } }
     /// The full-screen player opens with lyrics beside the artwork.
@@ -123,6 +127,7 @@ final class AppSettings {
             d.set(background.rawValue, forKey: Keys.fullScreenBackground)
         }
         fullScreenBackground = background
+        checksForUpdates = d.object(forKey: Keys.checksForUpdates) as? Bool ?? true
         artworkBlur = min(max(d.object(forKey: Keys.artworkBlur) as? Int ?? 1, 0), Self.artworkBlurRadii.count - 1)
         lyricsSize = LyricsSize(rawValue: d.string(forKey: Keys.lyricsSize) ?? "") ?? .medium
         fullScreenShowsLyrics = d.object(forKey: Keys.fullScreenShowsLyrics) as? Bool ?? true
@@ -152,6 +157,7 @@ final class AppSettings {
         accent = .red
         fullScreenBackground = .colors
         artworkBlur = 1
+        checksForUpdates = true
         lyricsSize = .medium
         fullScreenShowsLyrics = true
         showsPlaylistsInSidebar = true
@@ -167,6 +173,7 @@ final class AppSettings {
         static let fullScreenBackground = "settings.fullScreenBackground"
         static let artworkColorsMigrated = "settings.fullScreenBackground.artworkColorsMigrated"
         static let artworkBlur = "settings.artworkBlur"
+        static let checksForUpdates = "settings.checksForUpdates"
         static let lyricsSize = "settings.lyricsSize"
         static let fullScreenShowsLyrics = "settings.fullScreenShowsLyrics"
         static let showsPlaylistsInSidebar = "settings.showsPlaylistsInSidebar"

@@ -291,6 +291,23 @@ The owner found the app choppy and slow to respond. Measured against the previou
 - `NowPlaying` only republishes on a change or >1.5s drift; feed continuations append
   without animation; `./build.sh` builds Dev optimized (`CONF=debug` for lldb).
 
+**Updates** (`Support/Updater.swift`, `UI/UpdateViews.swift`) — the app only *checks*;
+installing is always the README one-liner in Terminal (owner's call: one path that works
+for everyone). Checks 5s after launch, every 6h while running, and on becoming active if
+the last check (`updates.lastChecked`) is 6h+ old; toggle in Settings › General › Updates
+(`settings.checksForUpdates`), with Check Now. A newer release shows a sidebar card and the
+Settings section as two steps: 1. Copy Command, 2. paste into Terminal (Open Terminal link).
+Off in dev builds; `--demo --demo-update` shows the card in a demo run. The in-app
+download-and-swap installer was removed.
+
+**Sign-in from any browser** — `SignIn.start()` uses the default browser if supported,
+else a picker of installed ones (Safari, Chrome/Brave/Edge/Arc/Vivaldi/Opera, Firefox);
+the in-app `AuthWindow` is last. "Sign In with Another Browser…" (Help menu, account menu)
+opens the picker directly. Chromium: `ChromiumCookies.unlock` reads "<Browser> Safe
+Storage" from the Keychain once (one macOS prompt), PBKDF2 → AES-128-CBC, strips the
+32-byte host hash for DB meta version ≥ 24; picks the profile signed in to YouTube, last
+used first. Firefox: plain cookies.sqlite. DBs are copied before reading (browsers lock them).
+
 ## 4. Next
 
 - Advanced features: library mutation (like / add to playlist), search continuations,
