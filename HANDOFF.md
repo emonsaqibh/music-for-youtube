@@ -61,7 +61,7 @@ Real fix for Gatekeeper = Developer ID + notarization (paid account, none yet).
 All development and testing uses the **dev** build. A release is frozen: `release.sh`
 builds in release config, saves the app and a `source.tar.gz` snapshot under
 `releases/<version>/`, installs it to `/Applications`, and refuses to reuse a version.
-Current release: **1.1.0** (2026-09-23; playlist editing). 1.0.0 was the first stable build. Betas before it: 0.1.0-beta.1 … 0.2.0-beta.5.
+Current release: **1.2.0** (2026-09-24; queue reordering, search to add songs). 1.0.0 was the first stable build. Betas before it: 0.1.0-beta.1 … 0.2.0-beta.5.
 
 ### Launch flags
 
