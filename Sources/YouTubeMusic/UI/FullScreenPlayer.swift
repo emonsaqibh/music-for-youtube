@@ -381,3 +381,19 @@ private struct ArtworkColorsBackground: View {
                 at(2), at(1), at(4), at(3)]
     }
 }
+
+extension View {
+    /// A pushed page's back button lives in the window toolbar, which AppKit draws above
+    /// the full-screen player's overlay; hide it while the player covers the page.
+    func hidesBackButtonUnderFullScreenPlayer() -> some View {
+        modifier(BackButtonUnderFullScreenPlayer())
+    }
+}
+
+private struct BackButtonUnderFullScreenPlayer: ViewModifier {
+    @Environment(Router.self) private var router
+
+    func body(content: Content) -> some View {
+        content.navigationBarBackButtonHidden(router.showFullScreenPlayer)
+    }
+}

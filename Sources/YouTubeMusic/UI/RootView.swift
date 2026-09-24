@@ -18,7 +18,11 @@ struct RootView: View {
             NavigationStack(path: $router.path) {
                 ContentRoot()
                     .withPlayerPill()
-                    .navigationDestination(for: Route.self) { RouteView(route: $0).withPlayerPill() }
+                    .navigationDestination(for: Route.self) {
+                        RouteView(route: $0)
+                            .withPlayerPill()
+                            .hidesBackButtonUnderFullScreenPlayer()
+                    }
             }
         }
         .inspector(isPresented: $router.isPanelPresented) {
