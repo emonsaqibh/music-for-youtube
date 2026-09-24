@@ -61,7 +61,7 @@ Real fix for Gatekeeper = Developer ID + notarization (paid account, none yet).
 All development and testing uses the **dev** build. A release is frozen: `release.sh`
 builds in release config, saves the app and a `source.tar.gz` snapshot under
 `releases/<version>/`, installs it to `/Applications`, and refuses to reuse a version.
-Current release: **1.2.0** (2026-09-24; queue reordering, search to add songs). 1.0.0 was the first stable build. Betas before it: 0.1.0-beta.1 … 0.2.0-beta.5.
+Current release: **1.3.0** (2026-09-24; fluid motion, pill-to-full-screen morph, Liquid Glass players). 1.0.0 was the first stable build. Betas before it: 0.1.0-beta.1 … 0.2.0-beta.5.
 
 ### Launch flags
 
@@ -359,6 +359,28 @@ chip's page is prefetched after 200ms of hover. Home's first page (with any shel
 scrolled in) is kept on disk in Caches, so launch shows it in ~0.1s instead of ~3.6s.
 Playlists show their first 100 tracks at once and fill in the rest. The cache and its
 disk folder are wiped on `WebEngine.sessionDidChange` (sign-in/out, profile switch).
+
+**Motion** (`Motion` in `Theme.swift`) — springs, not timed curves: `snappy` (selections,
+reorders, content swaps), `bouncy` (presses), `gentle` (pages, shelves, full-screen).
+`.buttonStyle(.pressable)` squeezes buttons while held; `.appearIn(order:)` floats a page's
+first six shelves in one after another. The sidebar selection capsule and the chip / search
+filter highlights are single shapes that slide (`matchedGeometryEffect`); each sidebar page
+fades up as it appears (`PageArrival`). The full-screen player *is* the pill stretched
+(`PillMorph` in FullScreenPlayer.swift, Dynamic Island style): a stand-in pill sits exactly on
+the real one, its glass grows to the window while its controls dissolve, the player settles
+in, and closing runs it back. The pill's rect is derived from the detail column
+(`router.detailFrame`) — measuring the pill itself doesn't work, since hidden pages' pills
+report frames too. The queue is a custom list (`ReorderableQueue`): fixed 48pt rows, the
+dragged row lifts, others spring aside, and the data moves only after the drop animation
+lands (animations off for that instant, so nothing jumps). Don't add a zero-distance
+DragGesture to tap-able views for press effects — on macOS it swallows the tap (tried; the
+sidebar stopped responding). Use a Button with `.pressable` instead.
+Keep every animation scoped (`.animation(_:value:)` on the view that moves, or
+`withAnimation` around local state only). Never wrap a navigation change (`router.select`,
+the stack's path, the content root's identity) or anything on the split view itself in an
+animation: AppKit then resizes the split view's hosting views mid-layout, safe-area
+invalidation re-requests constraints, and the window aborts with
+`_postWindowNeedsUpdateConstraints` (crashed the dev build twice in a minute).
 
 ## 4. Next
 

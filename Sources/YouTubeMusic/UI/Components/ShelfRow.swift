@@ -158,7 +158,9 @@ struct FeedView: View {
                 }
                 .padding(.bottom, chips.isEmpty && filter == nil ? 0 : -8)
 
-                ForEach(shelves) { ShelfRow(shelf: $0) }
+                ForEach(Array(shelves.enumerated()), id: \.element.id) { order, shelf in
+                    ShelfRow(shelf: shelf).appearIn(order: order)
+                }
                     .opacity(isSwitching ? 0.45 : 1)
                     .animation(.easeOut(duration: 0.15), value: isSwitching)
 
@@ -187,6 +189,7 @@ struct FeedView: View {
     /// Marks the chip at once — the page follows, instantly if it was loaded before.
     private func select(_ chip: FeedChip) {
         chipParams = chip.isSelected ? chip.deselectParams : chip.params
+        // The chip bar animates its own capsule; the page swap stays out of the transaction.
         chips = chips.map { other in
             var other = other
             other.isSelected = !chip.isSelected && other.id == chip.id
@@ -358,6 +361,7 @@ private struct ChipBar: View {
     let chips: [FeedChip]
     let onSelect: (FeedChip) -> Void
     var onHover: (FeedChip, Bool) -> Void = { _, _ in }
+    @Namespace private var selectionSpace
 
     var body: some View {
         ScrollView(.horizontal) {
@@ -370,18 +374,25 @@ private struct ChipBar: View {
                             .padding(.horizontal, 14)
                             .padding(.vertical, 6)
                             .background {
-                                Capsule().fill(chip.isSelected ? Theme.accent : Color.primary.opacity(0.08))
+                                ZStack {
+                                    Capsule().fill(Color.primary.opacity(0.08))
+                                    if chip.isSelected {
+                                        // Slides between chips as the selection moves.
+                                        Capsule().fill(Theme.accent)
+                                            .matchedGeometryEffect(id: "chip", in: selectionSpace)
+                                    }
+                                }
                             }
                             .contentShape(Capsule())
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(.pressable(scale: 0.93))
                     .onHover { onHover(chip, $0) }
                 }
             }
             .padding(.horizontal, Theme.pageInset)
         }
         .scrollIndicators(.never)
-        .animation(.easeInOut(duration: 0.2), value: chips)
+        .animation(Motion.snappy, value: chips)
     }
 }
 

@@ -8,6 +8,7 @@ struct SearchView: View {
     @State private var shelves: [Shelf] = []
     @State private var state: LoadState = .empty("Search for songs, albums, artists and playlists.")
     @State private var task: Task<Void, Never>?
+    @Namespace private var filterSpace
 
     var body: some View {
         @Bindable var router = router
@@ -51,17 +52,23 @@ struct SearchView: View {
                     filter = option
                     schedule(immediate: true)
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.pressable(scale: 0.93))
                 .font(.system(size: 12, weight: .medium))
                 .foregroundStyle(filter == option ? .white : .primary)
                 .padding(.horizontal, 12)
                 .padding(.vertical, 5)
                 .background {
-                    Capsule().fill(filter == option ? Theme.accent : Color.primary.opacity(0.08))
+                    ZStack {
+                        Capsule().fill(Color.primary.opacity(0.08))
+                        if filter == option {
+                            Capsule().fill(Theme.accent).matchedGeometryEffect(id: "filter", in: filterSpace)
+                        }
+                    }
                 }
             }
             Spacer(minLength: 0)
         }
+        .animation(Motion.snappy, value: filter)
         .pageInsets()
         .padding(.bottom, 12)
     }

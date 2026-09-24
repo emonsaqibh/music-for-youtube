@@ -84,7 +84,7 @@ private struct DestinationTile: View {
             .background(shape.fill(Color.primary.opacity(hovering ? 0.09 : 0.055)))
             .contentShape(shape)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.pressable(scale: 0.97))
         .onHover { hovering = $0 }
         .animation(.easeOut(duration: 0.15), value: hovering)
     }
@@ -121,7 +121,7 @@ private struct MoodTile: View {
                 .scaleEffect(hovering ? 1.02 : 1)
                 .contentShape(shape)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.pressable(scale: 0.97))
         .onHover { hovering = $0 }
         .animation(.spring(duration: 0.25), value: hovering)
         .help(button.title)

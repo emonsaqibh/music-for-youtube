@@ -130,7 +130,7 @@ struct HoverPlayButton: View {
                 .background(.black.opacity(0.4), in: Circle())
                 .glassEffect(.regular.interactive(), in: Circle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.pressable(scale: 0.86))
         .opacity(isVisible ? 1 : 0)
         .scaleEffect(isVisible ? 1 : 0.85)
         .animation(.spring(response: 0.25, dampingFraction: 0.8), value: isVisible)
@@ -159,7 +159,7 @@ struct TransportButton: View {
                     if hovering && isEnabled { Circle().fill(.primary.opacity(0.1)) }
                 }
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.pressable(scale: 0.86))
         .disabled(!isEnabled)
         .opacity(isEnabled ? 1 : 0.3)
         .onHover { hovering = $0 }
@@ -178,4 +178,62 @@ struct GlassCluster<Content: View>: View {
             .padding(.vertical, 5)
             .glassEffect(.regular, in: Capsule())
     }
+}
+
+// MARK: - Motion
+
+/// How things move: springs rather than timed curves, so motion carries momentum and
+/// settles the way iOS does. Kept to transforms and opacity — cheap for the GPU.
+enum Motion {
+    /// Selections, reorders, content swaps.
+    static let snappy = Animation.spring(response: 0.3, dampingFraction: 0.82)
+    /// Presses: a quick squeeze with a little give on release.
+    static let bouncy = Animation.spring(response: 0.26, dampingFraction: 0.6)
+    /// Larger surfaces arriving (pages, shelves).
+    static let gentle = Animation.spring(response: 0.45, dampingFraction: 0.88)
+    /// The pill stretching into the full-screen player and back: slower than the rest and
+    /// a little underdamped, so the shape overshoots and settles like the Dynamic Island.
+    static let expand = Animation.spring(response: 0.52, dampingFraction: 0.8)
+}
+
+/// Squeezes a button while it's held and springs it back on release.
+struct PressableButtonStyle: ButtonStyle {
+    var scale: CGFloat = 0.92
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .scaleEffect(configuration.isPressed ? scale : 1)
+            .animation(Motion.bouncy, value: configuration.isPressed)
+    }
+}
+
+extension ButtonStyle where Self == PressableButtonStyle {
+    static var pressable: PressableButtonStyle { PressableButtonStyle() }
+    static func pressable(scale: CGFloat) -> PressableButtonStyle { PressableButtonStyle(scale: scale) }
+}
+
+/// Floats a view in — up a few points and from transparent — shortly after it appears,
+/// later for later items, so a page's first sections arrive one after another. Only the
+/// first few are staggered; the rest appear as they are.
+private struct AppearIn: ViewModifier {
+    let order: Int
+    @State private var shown = false
+
+    func body(content: Content) -> some View {
+        if order > 5 {
+            content
+        } else {
+            content
+                .opacity(shown ? 1 : 0)
+                .offset(y: shown ? 0 : 14)
+                .onAppear {
+                    guard !shown else { return }
+                    withAnimation(Motion.gentle.delay(Double(order) * 0.05)) { shown = true }
+                }
+        }
+    }
+}
+
+extension View {
+    func appearIn(order: Int) -> some View { modifier(AppearIn(order: order)) }
 }

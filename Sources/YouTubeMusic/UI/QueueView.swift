@@ -21,42 +21,7 @@ struct QueueView: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .padding(.horizontal, 30)
             } else {
-                List {
-                    ForEach(Array(player.upNext.enumerated()), id: \.element.id) { offset, track in
-                        let position = player.index + 1 + offset
-                        QueueRow(track: track) { player.go(to: position) }
-                            .contextMenu {
-                                Button("Play Next", systemImage: "text.line.first.and.arrowtriangle.forward") {
-                                    player.moveInQueue(from: [position], to: player.index + 1)
-                                }
-                                .disabled(offset == 0)
-                                Button("Move to End", systemImage: "text.line.last.and.arrowtriangle.forward") {
-                                    player.moveInQueue(from: [position], to: player.queue.count)
-                                }
-                                .disabled(offset == player.upNext.count - 1)
-                                Divider()
-                                Button("Remove from Queue", systemImage: "minus.circle", role: .destructive) {
-                                    player.removeFromQueue(at: [position])
-                                }
-                            }
-                            .listRowSeparator(.hidden)
-                            .listRowInsets(EdgeInsets(top: 1, leading: 8, bottom: 1, trailing: 8))
-                    }
-                    .onMove { source, destination in
-                        let base = player.index + 1
-                        player.moveInQueue(from: IndexSet(source.map { $0 + base }),
-                                           to: destination + base)
-                    }
-                    .onDelete { offsets in
-                        let base = player.index + 1
-                        player.removeFromQueue(at: IndexSet(offsets.map { $0 + base }))
-                    }
-                }
-                .listStyle(.plain)
-                .scrollContentBackground(.hidden)
-                .safeAreaInset(edge: .bottom) {
-                    Color.clear.frame(height: compactHeader ? 60 : Theme.playerClearance - 40)
-                }
+                ReorderableQueue(bottomClearance: compactHeader ? 60 : Theme.playerClearance - 40)
             }
         }
     }
@@ -127,6 +92,8 @@ struct QueueView: View {
 
 private struct QueueRow: View {
     let track: Track
+    /// Being dragged: raised off the list, as iOS lifts a row.
+    var isLifted = false
     let onPlay: () -> Void
 
     @State private var hovering = false
@@ -162,11 +129,134 @@ private struct QueueRow: View {
         .padding(.vertical, 3)
         .padding(.horizontal, 6)
         .background {
-            RoundedRectangle(cornerRadius: 6, style: .continuous)
-                .fill(hovering ? Color.primary.opacity(0.06) : .clear)
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .fill(isLifted ? AnyShapeStyle(.regularMaterial)
+                      : AnyShapeStyle(Color.primary.opacity(hovering ? 0.06 : 0)))
+                .shadow(color: .black.opacity(isLifted ? 0.28 : 0), radius: isLifted ? 12 : 0, y: isLifted ? 6 : 0)
         }
+        .scaleEffect(isLifted ? 1.035 : 1)
         .contentShape(Rectangle())
         .onHover { hovering = $0 }
         .onTapGesture(perform: onPlay)
+    }
+}
+
+/// "Playing Next", reordered by dragging the way iOS lists do: the song lifts under the
+/// pointer, the others slide aside on springs as it passes, and on release it settles into
+/// its slot. Rows have one fixed height, so every position is arithmetic, not measurement.
+private struct ReorderableQueue: View {
+    let bottomClearance: CGFloat
+
+    @Environment(PlayerController.self) private var player
+
+    private static let rowHeight: CGFloat = 48
+    private static let settle = Animation.spring(response: 0.32, dampingFraction: 0.82)
+
+    /// The row being dragged, where the pointer has taken it, and the slot it would land in.
+    @State private var dragged: Int?
+    @State private var dragOffset: CGFloat = 0
+    @State private var target: Int?
+
+    /// Stable identities: a song queued twice gets "#2", so SwiftUI never sees duplicates.
+    private var rows: [(id: String, track: Track)] {
+        var seen: [String: Int] = [:]
+        return player.upNext.map { track in
+            let n = (seen[track.id] ?? 0) + 1
+            seen[track.id] = n
+            return (n == 1 ? track.id : "\(track.id)#\(n)", track)
+        }
+    }
+
+    var body: some View {
+        let rows = rows
+        ScrollView {
+            LazyVStack(spacing: 0) {
+                ForEach(Array(rows.enumerated()), id: \.element.id) { offset, row in
+                    let position = player.index + 1 + offset
+                    let lifted = dragged == offset
+                    QueueRow(track: row.track, isLifted: lifted) { player.go(to: position) }
+                        .frame(height: Self.rowHeight)
+                        .contextMenu { menu(offset: offset, position: position, count: rows.count) }
+                        .offset(y: yOffset(for: offset))
+                        .zIndex(lifted ? 1 : 0)
+                        .gesture(drag(for: offset, count: rows.count))
+                }
+            }
+            .padding(.horizontal, 8)
+            .padding(.bottom, bottomClearance)
+            // Songs added (Play Next) or removed slide rather than jump. A drop turns this off
+            // for the instant its data catches up with what's already on screen.
+            .animation(Self.settle, value: rows.map(\.id))
+        }
+        .scrollIndicators(.automatic)
+    }
+
+    /// Where a row sits while something is being dragged.
+    private func yOffset(for offset: Int) -> CGFloat {
+        guard let dragged, let target else { return 0 }
+        if offset == dragged { return dragOffset }
+        if dragged < target, offset > dragged, offset <= target { return -Self.rowHeight }
+        if dragged > target, offset >= target, offset < dragged { return Self.rowHeight }
+        return 0
+    }
+
+    private func drag(for offset: Int, count: Int) -> some Gesture {
+        DragGesture(minimumDistance: 4)
+            .onChanged { value in
+                if dragged == nil {
+                    withAnimation(.spring(response: 0.25, dampingFraction: 0.7)) {
+                        dragged = offset
+                        target = offset
+                    }
+                }
+                dragOffset = value.translation.height
+                let slot = min(max(offset + Int((dragOffset / Self.rowHeight).rounded()), 0), count - 1)
+                if slot != target {
+                    withAnimation(Self.settle) { target = slot }
+                }
+            }
+            .onEnded { _ in drop(from: offset) }
+    }
+
+    /// Springs the song into its slot, then moves it in the queue once it's there — with
+    /// animations off, since the screen already shows the result.
+    private func drop(from offset: Int) {
+        guard let target else { return clear() }
+        withAnimation(Self.settle) {
+            dragOffset = CGFloat(target - offset) * Self.rowHeight
+        } completion: {
+            var still = Transaction()
+            still.disablesAnimations = true
+            withTransaction(still) {
+                if target != offset {
+                    let base = player.index + 1
+                    player.moveInQueue(from: [base + offset],
+                                       to: base + target + (target > offset ? 1 : 0))
+                }
+                clear()
+            }
+        }
+    }
+
+    private func clear() {
+        dragged = nil
+        target = nil
+        dragOffset = 0
+    }
+
+    @ViewBuilder
+    private func menu(offset: Int, position: Int, count: Int) -> some View {
+        Button("Play Next", systemImage: "text.line.first.and.arrowtriangle.forward") {
+            player.moveInQueue(from: [position], to: player.index + 1)
+        }
+        .disabled(offset == 0)
+        Button("Move to End", systemImage: "text.line.last.and.arrowtriangle.forward") {
+            player.moveInQueue(from: [position], to: player.queue.count)
+        }
+        .disabled(offset == count - 1)
+        Divider()
+        Button("Remove from Queue", systemImage: "minus.circle", role: .destructive) {
+            player.removeFromQueue(at: [position])
+        }
     }
 }

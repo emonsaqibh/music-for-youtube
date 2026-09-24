@@ -234,10 +234,10 @@ struct FullScreenPlayer: View {
         .padding(20)
     }
 
+    /// Unanimated on purpose: the overlay animates itself, and an animated transaction
+    /// here would also animate the toolbar's back button in the split view (see HANDOFF).
     private func close() {
-        withAnimation(.spring(response: 0.45, dampingFraction: 0.9)) {
-            router.showFullScreenPlayer = false
-        }
+        router.showFullScreenPlayer = false
     }
 
     private func go(to route: Route) {
@@ -415,5 +415,110 @@ private struct BackButtonUnderFullScreenPlayer: ViewModifier {
 
     func body(content: Content) -> some View {
         content.navigationBarBackButtonHidden(router.showFullScreenPlayer)
+    }
+}
+
+// MARK: - Pill morph
+
+extension AnyTransition {
+    /// The pill stretching into the full-screen player: the capsule itself grows to fill
+    /// the window, its controls dissolving as it goes and the player's settling in once
+    /// there's room — and the same in reverse on close. `detail` is the detail column in
+    /// the player's coordinates (the pill sits at its bottom centre); `topInset` is how far
+    /// the window extends above the player's frame, under the toolbar.
+    static func pillMorph(detail: CGRect, topInset: CGFloat) -> AnyTransition {
+        .modifier(active: PillMorph(progress: 0, detail: detail, topInset: topInset),
+                  identity: PillMorph(progress: 1, detail: detail, topInset: topInset))
+    }
+}
+
+/// Transforms, opacity and a clip only, never a frame: the split view underneath must not
+/// be asked to relayout mid-animation (see HANDOFF, Motion).
+private struct PillMorph: ViewModifier, Animatable {
+    var progress: CGFloat
+    let detail: CGRect
+    let topInset: CGFloat
+
+    var animatableData: CGFloat {
+        get { progress }
+        set { progress = newValue }
+    }
+
+    /// 0 before `from`, 1 after `to`, eased in between.
+    private func ramp(_ from: CGFloat, _ to: CGFloat) -> CGFloat {
+        let t = min(1, max(0, (progress - from) / (to - from)))
+        return t * t * (3 - 2 * t)
+    }
+
+    func body(content: Content) -> some View {
+        let shape = PillMorphShape(progress: progress, detail: detail, topInset: topInset)
+        let pill = PillMorphShape.pill(in: detail)
+        let pillFades = 1 - ramp(0.02, 0.3)
+        let contentShows = ramp(0.3, 0.85)
+        let progress = progress
+        let detail = detail
+        let topInset = topInset
+
+        ZStack {
+            // The capsule's glass, stretching. Invisible at the very start, where the
+            // stand-in below already draws it.
+            shape.fill(.regularMaterial)
+                .environment(\.colorScheme, .dark)
+                .opacity(ramp(0, 0.12))
+
+            content
+                .opacity(contentShows)
+                .visualEffect { effect, proxy in
+                    // Grows with the shape, from its centre.
+                    let frame = PillMorphShape.frame(progress, in: proxy.size, detail: detail, topInset: topInset)
+                    let scale = 0.88 + 0.12 * min(1, max(0, (progress - 0.3) / 0.7))
+                    return effect.scaleEffect(scale, anchor: UnitPoint(x: frame.midX / max(proxy.size.width, 1),
+                                                                       y: frame.midY / max(proxy.size.height, 1)))
+                }
+
+            // The pill as it was — its controls fade while the glass around them grows.
+            if pillFades > 0, detail.width > 0 {
+                PlayerPill(isMorphing: true)
+                    .frame(width: detail.width, height: 54 + 18)
+                    .position(x: pill.midX, y: pill.maxY + 18 - 36)
+                    .scaleEffect(1 + 0.08 * (1 - pillFades), anchor: UnitPoint(x: 0.5, y: 0.5))
+                    .opacity(pillFades)
+                    .allowsHitTesting(false)
+            }
+        }
+        .clipShape(shape)
+    }
+}
+
+private struct PillMorphShape: Shape {
+    var progress: CGFloat
+    let detail: CGRect
+    let topInset: CGFloat
+
+    /// Where the pill's capsule sits: 54pt tall, at most 720 wide, 18pt in from the
+    /// detail column's sides and bottom (see `PlayerPill`).
+    nonisolated static func pill(in detail: CGRect) -> CGRect {
+        let width = min(720, detail.width - 36)
+        return CGRect(x: detail.midX - width / 2, y: detail.maxY - 18 - 54, width: width, height: 54)
+    }
+
+    nonisolated static func frame(_ progress: CGFloat, in size: CGSize, detail: CGRect, topInset: CGFloat) -> CGRect {
+        let full = CGRect(x: 0, y: -topInset, width: size.width, height: size.height + topInset)
+        let from = detail.width > 0 ? pill(in: detail)
+            : CGRect(x: size.width / 2 - 300, y: size.height - 72, width: 600, height: 54)
+        func mix(_ a: CGFloat, _ b: CGFloat) -> CGFloat { a + (b - a) * progress }
+        return CGRect(x: mix(from.minX, full.minX), y: mix(from.minY, full.minY),
+                      width: max(0, mix(from.width, full.width)), height: max(0, mix(from.height, full.height)))
+    }
+
+    func path(in rect: CGRect) -> Path {
+        let frame = Self.frame(progress, in: rect.size, detail: detail, topInset: topInset)
+        // A capsule while small, rounder mid-way so it reads as one soft shape stretching,
+        // and square at the end: open, the window's own corners round it, whatever the
+        // system radius is — a fixed radius here left dark crescents in the corners.
+        let t = min(1, max(0, progress))
+        let squaring = min(1, max(0, (t - 0.8) / 0.2))
+        let radius = min(frame.height / 2, (27 + 30 * sin(.pi * t)) * (1 - squaring))
+        return RoundedRectangle(cornerRadius: max(0, radius), style: .continuous).path(in: frame)
     }
 }

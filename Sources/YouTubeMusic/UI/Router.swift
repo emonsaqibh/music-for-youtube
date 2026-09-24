@@ -55,6 +55,10 @@ final class Router {
     }
     var panel: SidePanel? = DemoMode.opensLyrics ? .lyrics : DemoMode.opensQueue ? .queue : nil
     var showFullScreenPlayer = DemoMode.opensFullScreen
+    /// The detail column on screen (window coordinates). The pill always sits at its
+    /// bottom centre, so this is where the full-screen player grows from and shrinks back
+    /// to. Not observed: it's only read when the player opens or closes.
+    @ObservationIgnored var detailFrame: CGRect = .zero
 
     /// YouTube Music's navigation. Starts from the last fetched copy so the sidebar is
     /// complete on the first frame, then refreshes in the background.

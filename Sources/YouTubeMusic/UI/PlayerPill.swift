@@ -7,6 +7,9 @@ struct PlayerPill: View {
     @Environment(PlayerController.self) private var player
     @Environment(Router.self) private var router
 
+    /// The stand-in drawn by the full-screen player while it grows out of the pill.
+    var isMorphing = false
+
     @State private var width: CGFloat = 700
 
     /// Below these widths the secondary controls give way so the title stays readable —
@@ -32,6 +35,8 @@ struct PlayerPill: View {
         .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width = $0 }
         .padding(.bottom, 18)
         .padding(.horizontal, 18)
+        // While the full-screen player is up, it *is* the pill — see `PillMorph`.
+        .opacity(router.showFullScreenPlayer && !isMorphing ? 0 : 1)
         .animation(.easeInOut(duration: 0.2), value: compact)
         .animation(.easeInOut(duration: 0.2), value: tight)
     }
@@ -96,15 +101,25 @@ struct NowPlayingDisplay: View {
         Group {
             if player.hasTrack {
                 HStack(spacing: 9) {
-                    Artwork(url: player.current?.artwork, cornerRadius: 5)
-                        .frame(width: 36, height: 36)
-                        .shadow(color: .black.opacity(0.25), radius: 2, y: 1)
+                    ZStack {
+                        // A new song's artwork slides up in place of the last one's.
+                        Artwork(url: player.current?.artwork, cornerRadius: 5)
+                            .id(player.current?.id)
+                            .transition(.asymmetric(insertion: .move(edge: .bottom).combined(with: .opacity),
+                                                    removal: .move(edge: .top).combined(with: .opacity)))
+                    }
+                    .frame(width: 36, height: 36)
+                    .clipShape(RoundedRectangle(cornerRadius: 5, style: .continuous))
+                    .shadow(color: .black.opacity(0.25), radius: 2, y: 1)
+                    .animation(Motion.snappy, value: player.current?.id)
 
                     VStack(alignment: .leading, spacing: 2) {
                         HStack(spacing: 5) {
                             Text(player.current?.title ?? "")
                                 .font(.system(size: 12, weight: .semibold))
                                 .lineLimit(1)
+                                .contentTransition(.opacity)
+                                .animation(Motion.snappy, value: player.current?.id)
                             if player.current?.isExplicit == true { ExplicitBadge() }
                         }
 

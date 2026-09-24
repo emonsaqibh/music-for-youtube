@@ -3,6 +3,9 @@ import SwiftUI
 
 struct RootView: View {
     @State private var router = Router()
+    /// The overlay's origin on screen, to turn the pill's frame into the player's coordinates.
+    @State private var overlayOrigin: CGPoint = .zero
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     private var player: PlayerController { .shared }
 
     var body: some View {
@@ -24,6 +27,7 @@ struct RootView: View {
                             .hidesBackButtonUnderFullScreenPlayer()
                     }
             }
+            .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { router.detailFrame = $0 }
         }
         .inspector(isPresented: $router.isPanelPresented) {
             Group {
@@ -35,12 +39,21 @@ struct RootView: View {
             .inspectorColumnWidth(min: 270, ideal: 320, max: 440)
         }
         .overlay {
-            if router.showFullScreenPlayer {
-                FullScreenPlayer()
-                    .transition(.move(edge: .bottom).combined(with: .opacity))
+            // The animation is scoped to the overlay: an animated transaction reaching the
+            // split view makes AppKit resize its columns mid-layout, which can loop.
+            ZStack {
+                Color.clear.allowsHitTesting(false)
+                if router.showFullScreenPlayer {
+                    // The pill itself stretches into the player, and back.
+                    FullScreenPlayer()
+                        .transition(reduceMotion ? .opacity : .pillMorph(
+                            detail: router.detailFrame.offsetBy(dx: -overlayOrigin.x, dy: -overlayOrigin.y),
+                            topInset: overlayOrigin.y))
+                }
             }
+            .onGeometryChange(for: CGPoint.self) { $0.frame(in: .global).origin } action: { overlayOrigin = $0 }
+            .animation(Motion.expand, value: router.showFullScreenPlayer)
         }
-        .animation(.spring(response: 0.45, dampingFraction: 0.9), value: router.showFullScreenPlayer)
         .overlay(alignment: .bottom) {
             LibraryNoticeView()
                 .padding(.bottom, Theme.playerClearance - 8)
@@ -103,6 +116,7 @@ private extension View {
 /// selection, and headers set in from the rows.
 struct SidebarView: View {
     @Environment(Router.self) private var router
+    @Namespace private var selectionSpace
     /// The playlists section can be folded away; remembered across launches.
     @AppStorage("sidebar.playlistsCollapsed") private var playlistsCollapsed = false
 
@@ -158,6 +172,9 @@ struct SidebarView: View {
             .padding(.horizontal, 10)
             .padding(.top, 8)
             .padding(.bottom, 16)
+            .environment(\.sidebarSelectionSpace, selectionSpace)
+            // Animates the capsule sliding between rows — here only, never the page swap.
+            .animation(Motion.snappy, value: router.selection.key)
         }
         .scrollIndicators(.never)
         // A short fade where the list meets the account container, so rows ease out
@@ -349,6 +366,18 @@ private struct SidebarHeader: View {
 
 /// One destination. The selected row is a capsule of the accent colour with white text,
 /// as in Music.app on macOS 26.
+/// The sidebar's selection capsule is one shape that moves between rows.
+private struct SidebarSelectionSpaceKey: EnvironmentKey {
+    static let defaultValue: Namespace.ID? = nil
+}
+
+private extension EnvironmentValues {
+    var sidebarSelectionSpace: Namespace.ID? {
+        get { self[SidebarSelectionSpaceKey.self] }
+        set { self[SidebarSelectionSpaceKey.self] = newValue }
+    }
+}
+
 private struct SidebarRow: View {
     let item: SidebarItem
     let title: String
@@ -356,11 +385,19 @@ private struct SidebarRow: View {
     var artwork: URL?
 
     @Environment(Router.self) private var router
+    @Environment(\.sidebarSelectionSpace) private var selectionSpace
     @State private var hovering = false
 
     private var isSelected: Bool { router.selection.key == item.key }
 
     var body: some View {
+        Button { router.select(item) } label: { row }
+            .buttonStyle(.pressable(scale: 0.98))
+            .onHover { hovering = $0 }
+            .help(title)
+    }
+
+    private var row: some View {
         HStack(spacing: 8) {
             Group {
                 if let symbol {
@@ -383,14 +420,22 @@ private struct SidebarRow: View {
         .padding(.horizontal, 12)
         .frame(height: 32)
         .background {
-            RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .fill(isSelected ? Theme.accent
-                      : hovering ? Color.primary.opacity(0.06) : .clear)
+            ZStack {
+                if hovering && !isSelected {
+                    RoundedRectangle(cornerRadius: 10, style: .continuous).fill(Color.primary.opacity(0.06))
+                }
+                if isSelected {
+                    // Slides from the previous row to this one rather than blinking over.
+                    let capsule = RoundedRectangle(cornerRadius: 10, style: .continuous).fill(Theme.accent)
+                    if let selectionSpace {
+                        capsule.matchedGeometryEffect(id: "selection", in: selectionSpace)
+                    } else {
+                        capsule
+                    }
+                }
+            }
         }
         .contentShape(Rectangle())
-        .onHover { hovering = $0 }
-        .onTapGesture { router.select(item) }
-        .help(title)
     }
 }
 
@@ -423,6 +468,11 @@ struct ContentRoot: View {
         // Keyed on the session so every page reloads when the profile or sign-in changes,
         // rather than showing the previous identity's recommendations.
         page.id(Session.shared.generation)
+            // Each page rises in as it appears. Only its opacity and offset animate: the
+            // swap itself stays instant, since animating the navigation stack's root inside
+            // the split view makes AppKit relayout in a loop and abort.
+            .modifier(PageArrival())
+            .id(router.selection.key)
     }
 
     @ViewBuilder
@@ -437,6 +487,17 @@ struct ContentRoot: View {
         case .playlist(let id, let title):
             CollectionView(source: .playlist(id), fallbackTitle: title)
         }
+    }
+}
+
+private struct PageArrival: ViewModifier {
+    @State private var shown = false
+
+    func body(content: Content) -> some View {
+        content
+            .opacity(shown ? 1 : 0)
+            .offset(y: shown ? 0 : 10)
+            .onAppear { withAnimation(Motion.gentle) { shown = true } }
     }
 }
 
