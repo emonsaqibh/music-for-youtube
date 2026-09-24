@@ -18,6 +18,13 @@ struct CollectionView: View {
     @State private var saving = false
     @State private var suggestions: [Track] = []
     @State private var suggestionsRefresh: String?
+    /// Search for songs to add, on an own playlist. Kept apart from the track list so
+    /// typing never redraws it.
+    @State private var addQuery = ""
+    @State private var addResults: [Track] = []
+    @State private var addSearching = false
+    @State private var addSearchTask: Task<Void, Never>?
+    @State private var addedIds: Set<String> = []
 
     @State private var width: CGFloat = 900
 
@@ -28,7 +35,7 @@ struct CollectionView: View {
                     hero(collection)
                     trackList(collection)
                     footer(collection)
-                    if collection.isOwned, !suggestions.isEmpty {
+                    if collection.isOwned {
                         suggestionsSection
                     }
                     ForEach(collection.shelves) { ShelfRow(shelf: $0, tileWidth: 150) }
@@ -162,14 +169,19 @@ struct CollectionView: View {
 
     // MARK: Suggestions
 
-    /// YouTube Music's "Suggestions" under an own playlist: songs to add with one click.
+    private var isSearchingToAdd: Bool {
+        addQuery.trimmingCharacters(in: .whitespaces).count >= 2
+    }
+
+    /// Under an own playlist: a search for any song to add, and YouTube Music's
+    /// "Suggestions" while the search is empty — each with one-click add.
     private var suggestionsSection: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: 10) {
             HStack {
-                Text("Suggestions")
+                Text(isSearchingToAdd ? "Add Songs" : "Suggestions")
                     .font(.system(size: 20, weight: .bold))
                 Spacer()
-                if let token = suggestionsRefresh {
+                if !isSearchingToAdd, let token = suggestionsRefresh {
                     Button("Refresh", systemImage: "arrow.clockwise") {
                         Task { await loadSuggestions(token) }
                     }
@@ -178,13 +190,75 @@ struct CollectionView: View {
             }
             .pageInsets()
 
+            addSearchField.pageInsets()
+
+            let rows = isSearchingToAdd ? addResults : suggestions
             VStack(spacing: 0) {
-                ForEach(suggestions) { track in
-                    SuggestionRow(track: track) { add(track) }
+                ForEach(rows) { track in
+                    SuggestionRow(track: track, isAdded: isInPlaylist(track)) { add(track) }
                 }
             }
             .padding(.horizontal, Theme.pageInset - 10)
+
+            if isSearchingToAdd, !addSearching, addResults.isEmpty {
+                Text("No songs found for “\(addQuery.trimmingCharacters(in: .whitespaces))”.")
+                    .font(.system(size: 12))
+                    .foregroundStyle(.secondary)
+                    .pageInsets()
+            }
         }
+    }
+
+    private var addSearchField: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "magnifyingglass")
+                .font(.system(size: 13, weight: .medium))
+                .foregroundStyle(.secondary)
+            TextField("Search for songs to add", text: $addQuery)
+                .textFieldStyle(.plain)
+                .font(.system(size: 14))
+                .onSubmit { searchToAdd(immediately: true) }
+            if addSearching {
+                ProgressView().controlSize(.small)
+            } else if !addQuery.isEmpty {
+                Button { addQuery = "" } label: {
+                    Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary)
+                }
+                .buttonStyle(.plain)
+                .help("Clear")
+            }
+        }
+        .padding(.horizontal, 12)
+        .frame(height: 34)
+        .frame(maxWidth: 420)
+        .background(RoundedRectangle(cornerRadius: 9, style: .continuous).fill(Color.primary.opacity(0.06)))
+        .onChange(of: addQuery) { _, _ in searchToAdd() }
+    }
+
+    /// Searches songs once typing pauses; a newer query cancels an older one.
+    private func searchToAdd(immediately: Bool = false) {
+        addSearchTask?.cancel()
+        let query = addQuery.trimmingCharacters(in: .whitespaces)
+        guard query.count >= 2 else {
+            addResults = []
+            addSearching = false
+            return
+        }
+        addSearchTask = Task {
+            if !immediately {
+                try? await Task.sleep(for: .milliseconds(350))
+                guard !Task.isCancelled else { return }
+            }
+            addSearching = true
+            let found = (try? await Catalog.search(query, filter: .songs))?.flatMap(\.tracks) ?? []
+            guard !Task.isCancelled else { return }
+            addResults = Array(found.prefix(20))
+            addSearching = false
+        }
+    }
+
+    private func isInPlaylist(_ track: Track) -> Bool {
+        addedIds.contains(track.id) || (collection?.tracks.contains { $0.id == track.id } ?? false)
     }
 
     private func loadSuggestions(_ token: String) async {
@@ -198,6 +272,7 @@ struct CollectionView: View {
     /// Adds a suggestion to the end of the playlist.
     private func add(_ track: Track) {
         guard case .playlist(let playlistId) = source else { return }
+        addedIds.insert(track.id)
         withAnimation(.easeInOut(duration: 0.2)) { suggestions.removeAll { $0.id == track.id } }
         Task {
             do {
@@ -211,6 +286,7 @@ struct CollectionView: View {
                     LibraryEditor.shared.show("“\(track.title)” is already in this playlist")
                 }
             } catch {
+                addedIds.remove(track.id)
                 withAnimation { suggestions.insert(track, at: 0) }
                 LibraryEditor.shared.show("Couldn’t add “\(track.title)”", isError: true)
             }
@@ -293,6 +369,8 @@ struct CollectionView: View {
 /// One suggested song: artwork, title and artist, and a + that adds it.
 private struct SuggestionRow: View {
     let track: Track
+    /// Already in the playlist (or just added): a tick instead of the add button.
+    var isAdded = false
     let onAdd: () -> Void
 
     @Environment(PlayerController.self) private var player
@@ -311,14 +389,16 @@ private struct SuggestionRow: View {
                 .font(.system(size: 12).monospacedDigit())
                 .foregroundStyle(.secondary)
             Button(action: onAdd) {
-                Image(systemName: "plus.circle")
+                Image(systemName: isAdded ? "checkmark.circle.fill" : "plus.circle")
                     .font(.system(size: 18))
-                    .foregroundStyle(Theme.accent)
+                    .foregroundStyle(isAdded ? Color.secondary : Theme.accent)
                     .frame(width: 28, height: 28)
                     .contentShape(Rectangle())
+                    .contentTransition(.symbolEffect(.replace))
             }
             .buttonStyle(.plain)
-            .help("Add to this playlist")
+            .disabled(isAdded)
+            .help(isAdded ? "In this playlist" : "Add to this playlist")
         }
         .padding(.vertical, 6)
         .padding(.horizontal, 10)

@@ -23,7 +23,22 @@ struct QueueView: View {
             } else {
                 List {
                     ForEach(Array(player.upNext.enumerated()), id: \.element.id) { offset, track in
-                        QueueRow(track: track) { player.go(to: player.index + 1 + offset) }
+                        let position = player.index + 1 + offset
+                        QueueRow(track: track) { player.go(to: position) }
+                            .contextMenu {
+                                Button("Play Next", systemImage: "text.line.first.and.arrowtriangle.forward") {
+                                    player.moveInQueue(from: [position], to: player.index + 1)
+                                }
+                                .disabled(offset == 0)
+                                Button("Move to End", systemImage: "text.line.last.and.arrowtriangle.forward") {
+                                    player.moveInQueue(from: [position], to: player.queue.count)
+                                }
+                                .disabled(offset == player.upNext.count - 1)
+                                Divider()
+                                Button("Remove from Queue", systemImage: "minus.circle", role: .destructive) {
+                                    player.removeFromQueue(at: [position])
+                                }
+                            }
                             .listRowSeparator(.hidden)
                             .listRowInsets(EdgeInsets(top: 1, leading: 8, bottom: 1, trailing: 8))
                     }
@@ -137,6 +152,12 @@ private struct QueueRow: View {
                     .lineLimit(1)
             }
             Spacer(minLength: 0)
+            // The row itself drags (the list's reordering); the handle says so.
+            Image(systemName: "line.3.horizontal")
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(.tertiary)
+                .opacity(hovering ? 1 : 0)
+                .help("Drag to reorder")
         }
         .padding(.vertical, 3)
         .padding(.horizontal, 6)
