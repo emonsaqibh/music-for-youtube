@@ -2,9 +2,12 @@ import AppKit
 import SwiftUI
 
 /// The panel that drops from the menu bar icon — a Now Playing card in the manner of
-/// Control Center's: artwork and title over a wash of the album colours, a scrubber,
-/// transport, volume, what's up next, and the account and app shortcuts underneath.
+/// Control Center's: artwork and title, a scrubber, transport, volume, what's up next, and
+/// the account and app shortcuts underneath, all on one sheet of Liquid Glass.
 struct MenuBarPlayer: View {
+    /// The menu bar panel's own corner radius, so the glass fills it exactly.
+    static let cornerRadius: CGFloat = 18
+
     @Environment(PlayerController.self) private var player
     @Environment(\.openWindow) private var openWindow
     @Environment(\.openSettings) private var openSettings
@@ -29,7 +32,10 @@ struct MenuBarPlayer: View {
                 .padding(.vertical, 8)
         }
         .frame(width: 320)
-        .background { NowPlayingBackdrop(url: player.current?.artwork) }
+        // System glass rather than a material, so it follows the Liquid Glass level
+        // chosen in System Settings › Appearance. The panel's own grey is cleared away.
+        .glassEffect(.regular, in: .rect(cornerRadius: Self.cornerRadius))
+        .containerBackground(.clear, for: .window)
     }
 
     // MARK: Now playing
@@ -273,39 +279,6 @@ private struct VolumeRow: View {
             Image(systemName: "speaker.wave.3.fill")
                 .font(.system(size: 10))
                 .foregroundStyle(.secondary)
-        }
-    }
-}
-
-/// The album colours behind the menu bar panel and mini player: the pre-blurred
-/// artwork, frosted over so text stays legible in either appearance.
-struct NowPlayingBackdrop: View {
-    let url: URL?
-
-    @State private var image: NSImage?
-
-    var body: some View {
-        ZStack {
-            if let image {
-                Image(nsImage: image)
-                    .resizable()
-                    .interpolation(.high)
-                    .aspectRatio(contentMode: .fill)
-                    .scaleEffect(1.4)
-                    .transition(.opacity)
-                    .id(url)
-            }
-            Rectangle().fill(.regularMaterial).opacity(0.72)
-        }
-        .clipped()
-        .ignoresSafeArea()
-        .task(id: url) {
-            guard let url else {
-                withAnimation(.easeInOut(duration: 0.5)) { image = nil }
-                return
-            }
-            let next = await ImageCache.shared.ambient(url)
-            withAnimation(.easeInOut(duration: 0.6)) { image = next }
         }
     }
 }

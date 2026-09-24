@@ -2,7 +2,8 @@ import AppKit
 import SwiftUI
 
 /// A compact floating player for when the main window is out of the way, in two sizes: a
-/// wide bar with a scrubber, and a small square (artwork, title, transport). Chrome-free:
+/// wide bar with a scrubber, and a small square (artwork, title, transport), each a single
+/// pane of Liquid Glass. Chrome-free:
 /// the window's own buttons are hidden and the whole thing drags; the size switch, "open
 /// app" and close appear on hover, as in Music.app's mini player.
 struct MiniPlayerView: View {
@@ -19,7 +20,6 @@ struct MiniPlayerView: View {
         Group {
             if isSquare { square } else { wide }
         }
-        .background { NowPlayingBackdrop(url: player.current?.artwork) }
         .overlay(alignment: .topTrailing) {
             HStack(spacing: isSquare ? 3 : 4) {
                 hoverButton(isSquare ? "rectangle" : "square",
@@ -35,7 +35,8 @@ struct MiniPlayerView: View {
             .padding(isSquare ? 6 : 8)
             .opacity(hovering ? 1 : 0)
         }
-        .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+        // System glass, so it follows the Liquid Glass level in System Settings.
+        .glassEffect(.regular, in: .rect(cornerRadius: 18))
         // SwiftUI's hosting view claims every mouse-down, so AppKit's "movable by
         // background" never sees one. Drag the window from SwiftUI instead; the buttons
         // and the scrubber's own drag still win where they are.
