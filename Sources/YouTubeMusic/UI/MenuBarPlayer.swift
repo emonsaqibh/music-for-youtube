@@ -36,6 +36,7 @@ struct MenuBarPlayer: View {
         // chosen in System Settings › Appearance. The panel's own grey is cleared away.
         .glassEffect(.regular, in: .rect(cornerRadius: Self.cornerRadius))
         .containerBackground(.clear, for: .window)
+        .background(ShadowlessWindow())
     }
 
     // MARK: Now playing
@@ -279,6 +280,20 @@ private struct VolumeRow: View {
             Image(systemName: "speaker.wave.3.fill")
                 .font(.system(size: 10))
                 .foregroundStyle(.secondary)
+        }
+    }
+}
+
+/// Turns off the hosting window's shadow: the glass casts its own soft one, and the
+/// window's would outline it in a hard dark edge.
+private struct ShadowlessWindow: NSViewRepresentable {
+    func makeNSView(context: Context) -> NSView { Probe() }
+    func updateNSView(_ nsView: NSView, context: Context) {}
+
+    private final class Probe: NSView {
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            window?.hasShadow = false
         }
     }
 }

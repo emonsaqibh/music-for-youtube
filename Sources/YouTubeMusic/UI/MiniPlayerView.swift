@@ -166,7 +166,9 @@ private struct ChromelessWindow: NSViewRepresentable {
         window.isMovableByWindowBackground = true
         window.isOpaque = false
         window.backgroundColor = .clear
-        window.hasShadow = true
+        // The glass casts its own soft shadow; the window's shadow would add a hard dark
+        // outline around it.
+        window.hasShadow = false
         window.titlebarAppearsTransparent = true
         window.titleVisibility = .hidden
     }
