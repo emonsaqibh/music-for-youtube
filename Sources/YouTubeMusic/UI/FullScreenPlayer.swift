@@ -12,17 +12,29 @@ struct FullScreenPlayer: View {
     @Environment(\.openWindow) private var openWindow
 
     @State private var pane: SidePanel? = AppSettings.shared.fullScreenShowsLyrics ? .lyrics : nil
+    /// The track the user opened lyrics for by hand, so its "not available" note shows.
+    @State private var lyricsOpenedFor: String?
     @State private var tint: Color = Color(white: 0.2)
+
+    /// The pane on screen. Lyrics step aside for a song that has none, unless the user
+    /// asked for them on this song; `pane` keeps its value, so the next song with lyrics
+    /// shows them again.
+    private var shownPane: SidePanel? {
+        let lyrics = LyricsStore.shared
+        if pane == .lyrics, let id = player.current?.id, lyricsOpenedFor != id,
+           lyrics.videoId == id, lyrics.state == .unavailable { return nil }
+        return pane
+    }
 
     var body: some View {
         GeometryReader { geo in
-            let layout = Layout(size: geo.size, showsPane: pane != nil)
+            let layout = Layout(size: geo.size, showsPane: shownPane != nil)
 
             HStack(spacing: layout.gap) {
                 leftColumn(artSize: layout.artSize)
-                    .frame(maxWidth: pane == nil ? .infinity : layout.leftWidth)
+                    .frame(maxWidth: shownPane == nil ? .infinity : layout.leftWidth)
 
-                if let pane {
+                if let pane = shownPane {
                     Group {
                         switch pane {
                         case .lyrics: LyricsView(style: .immersive)
@@ -37,7 +49,7 @@ struct FullScreenPlayer: View {
             .padding(.top, 64)
             .padding(.bottom, 40)
             .frame(width: geo.size.width, height: geo.size.height)
-            .animation(.spring(response: 0.5, dampingFraction: 0.88), value: pane)
+            .animation(.spring(response: 0.5, dampingFraction: 0.88), value: shownPane)
         }
         .background {
             AmbientBackground(url: player.current?.artwork, fallback: tint,
@@ -48,6 +60,9 @@ struct FullScreenPlayer: View {
         .overlay(alignment: .bottomTrailing) { bottomCluster }
         .environment(\.colorScheme, .dark)
         .task(id: player.current?.artwork) { await refreshTint() }
+        // Load lyrics even while their pane is hidden, to know when to bring it back.
+        // Shared with LyricsView, so this never fetches twice.
+        .task(id: player.current?.id) { await LyricsStore.shared.load(for: player.current) }
         .animation(.easeInOut(duration: 0.6), value: tint)
     }
 
@@ -202,8 +217,13 @@ struct FullScreenPlayer: View {
 
     private var bottomCluster: some View {
         GlassCluster {
-            TransportButton(symbol: "quote.bubble", size: 14, isActive: pane == .lyrics) {
-                pane = pane == .lyrics ? nil : .lyrics
+            TransportButton(symbol: "quote.bubble", size: 14, isActive: shownPane == .lyrics) {
+                if shownPane == .lyrics {
+                    pane = nil
+                } else {
+                    pane = .lyrics
+                    lyricsOpenedFor = player.current?.id
+                }
             }
             .help("Lyrics")
             TransportButton(symbol: "list.bullet", size: 14, isActive: pane == .queue) {
