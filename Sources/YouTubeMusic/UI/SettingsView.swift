@@ -318,6 +318,10 @@ private struct AboutPane: View {
     @Environment(\.openWindow) private var openWindow
 
     private var version: String {
+        // The dev build's timestamp says little; its git label and commit say what's in it.
+        if BuildFlavor.isDev, let commit = BuildFlavor.commit {
+            return "Version \(BuildFlavor.versionLabel) (\(commit))"
+        }
         let info = Bundle.main.infoDictionary
         let short = info?["CFBundleShortVersionString"] as? String ?? "–"
         let build = info?["CFBundleVersion"] as? String ?? "–"
