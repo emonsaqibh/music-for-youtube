@@ -128,8 +128,12 @@ enum Catalog {
         try await browse(Guide.likedPlaylistsId).flatMap(\.cards).filter { $0.kind == .playlist }
     }
 
-    static func history() async throws -> [Shelf] {
-        Parse.shelves(in: try await engine.innertube("browse", ["browseId": "FEmusic_history"]))
+    /// Listening history: a song list per period, under YouTube's own headings (Today,
+    /// Yesterday, …). Never cached: it changes with every song played.
+    static func history() async throws -> LibraryPage {
+        let json = try await engine.innertube("browse", ["browseId": Guide.historyId])
+        return LibraryPage(shelves: Parse.shelves(in: json).filter { !$0.tracks.isEmpty },
+                           emptyMessage: Parse.emptyMessage(in: json))
     }
 
     // MARK: Search

@@ -177,9 +177,9 @@ struct SidebarView: View {
                 }
 
                 if hasLibrary {
-                    if !router.guide.librarySections.isEmpty {
+                    if !router.librarySections.isEmpty {
                         SidebarHeader(title: router.guide.library?.title ?? "Library")
-                        ForEach(router.guide.librarySections) { item in
+                        ForEach(router.librarySections) { item in
                             SidebarRow(item: .library(item), title: item.title, symbol: item.symbol)
                         }
                     }
@@ -504,6 +504,8 @@ struct ContentRoot: View {
             SearchView()
         case .feed(let item):
             FeedView(title: item.title, browseId: item.browseId, params: item.params)
+        case .library(let item) where item.browseId == Guide.historyId:
+            HistoryView(title: item.title)
         case .library(let item):
             LibraryView(item: item)
         case .playlist(let id, let title):
