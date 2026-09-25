@@ -79,10 +79,21 @@ final class Router {
     /// The sidebar's top section: YouTube's own destinations, plus Charts straight after
     /// Explore — the web app buries it a click deep, but it is a place people go directly.
     var primaryItems: [NavItem] {
-        var items = guide.primary
+        // History is listed with the library instead.
+        var items = guide.primary.filter { $0.browseId != Guide.historyId }
         guard !items.contains(where: { $0.browseId == Guide.charts.browseId }) else { return items }
         let explore = items.firstIndex { $0.browseId == "FEmusic_explore" }
         items.insert(Guide.charts, at: explore.map { $0 + 1 } ?? items.endIndex)
+        return items
+    }
+
+    /// The library's sections, ending with History — YouTube's own entry if the guide or
+    /// the library has one, else ours. The sidebar only lists them for an account.
+    var librarySections: [NavItem] {
+        var items = guide.librarySections
+        if !items.contains(where: { $0.browseId == Guide.historyId }) {
+            items.append(guide.primary.first { $0.browseId == Guide.historyId } ?? Guide.history)
+        }
         return items
     }
 
@@ -146,7 +157,7 @@ final class Router {
             if let match = primaryItems.first(where: { $0.id == item.id }) { selection = .feed(match) }
             else if let first = primaryItems.first { selection = .feed(first) }
         case .library(let item):
-            if let match = guide.librarySections.first(where: { $0.id == item.id }) { selection = .library(match) }
+            if let match = librarySections.first(where: { $0.id == item.id }) { selection = .library(match) }
         default:
             break
         }
@@ -159,6 +170,8 @@ extension Guide {
     static let libraryId = "FEmusic_library_landing"
     static let charts = NavItem(title: "Charts", browseId: "FEmusic_charts")
     static let likedPlaylistsId = "FEmusic_liked_playlists"
+    static let historyId = "FEmusic_history"
+    static let history = NavItem(title: "History", browseId: historyId, iconType: "TAB_HISTORY")
 
     /// Used before the first successful fetch, or if `guide` fails.
     static let fallback = Guide(

@@ -48,6 +48,16 @@ enum NavProbe {
             }
         }
 
+        // Listening history: a list shelf per period, under YouTube's own headings.
+        if let raw = await raw("browse", ["browseId": "FEmusic_history"]) {
+            dump(raw, to: "FEmusic_history.json")
+            let json = try? JSON(parsing: raw)
+            Log.write("FEmusic_history: bytes=\(raw.count) "
+                      + (json.map(Parse.shelves) ?? []).map { "\"\($0.title)\" tracks=\($0.tracks.count) cards=\($0.cards.count)" }
+                          .joined(separator: " | "))
+            logSections(json, page: 0, label: "history")
+        }
+
         // --- 1b. Home, every page of it ---
         // YouTube pages the home feed: the first response carries a handful of shelves
         // and a continuation token; the web app fetches the rest as you scroll.
