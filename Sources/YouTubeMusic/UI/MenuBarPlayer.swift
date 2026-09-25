@@ -39,7 +39,8 @@ struct MenuBarPlayer: View {
         .frame(width: 330)
         .padding(Self.shadowRoom)
         // No panel: the window's grey is cleared here and its sheet of glass hidden by
-        // ClearPanel, so only the tiles draw and the gaps between them show the desktop.
+        // ClearPanel, which also turns off the tiles' shadows, so only the tiles draw and
+        // the gaps between them show the desktop.
         .containerBackground(.clear, for: .window)
         .background(ClearPanel())
     }
@@ -352,6 +353,35 @@ private struct ClearPanel: NSViewRepresentable {
             hidePanelGlass()
         }
 
+        private var observers: [any NSObjectProtocol] = []
+
+        override init(frame: NSRect) {
+            super.init(frame: frame)
+            // Reopening the panel and a new glass level both redraw the glass with its
+            // default settings, shadow included.
+            let center = NotificationCenter.default
+            observers.append(center.addObserver(
+                forName: Notification.Name("NSGlassEffectDiffusionDidChangeNotification"), object: nil, queue: .main
+            ) { [weak self] _ in
+                MainActor.assumeIsolated { self?.hidePanelGlass() }
+            })
+            observers.append(center.addObserver(
+                forName: NSWindow.didChangeOcclusionStateNotification, object: nil, queue: .main
+            ) { [weak self] note in
+                MainActor.assumeIsolated {
+                    guard let self, let window = self.window, note.object as? NSWindow === window,
+                          window.occlusionState.contains(.visible) else { return }
+                    self.hidePanelGlass()
+                }
+            })
+        }
+
+        required init?(coder: NSCoder) { fatalError() }
+
+        deinit {
+            observers.forEach { NotificationCenter.default.removeObserver($0) }
+        }
+
         private func hidePanelGlass() {
             // On the next turn, once SwiftUI has drawn this pass.
             DispatchQueue.main.async { [weak self] in
@@ -370,10 +400,25 @@ private struct ClearPanel: NSViewRepresentable {
                     for sibling in layer.superlayer?.sublayers ?? [] where isSheetPart(sibling, size: size) {
                         sibling.isHidden = true
                     }
+                } else {
+                    dropShadow(layer)
                 }
                 return
             }
             for sublayer in layer.sublayers ?? [] { hideGlass(filling: size, under: sublayer) }
+        }
+
+        /// The tiles' glass casts a shadow about 24pt wide. In the 10pt gaps two of them
+        /// overlap and dim the desktop by about 10%, a grey band between tiles; Control
+        /// Center's tiles cast none. Only settings the glass filter actually has are touched,
+        /// so a later macOS that renames them just keeps its shadow.
+        private static func dropShadow(_ backdrop: CALayer) {
+            guard let glass = backdrop.filters?.lazy.compactMap({ $0 as? NSObject })
+                    .first(where: { $0.value(forKey: "name") as? String == "glassBackground" }),
+                  let keys = glass.value(forKey: "inputKeys") as? [String] else { return }
+            for key in ["inputShadowOpacity", "inputRingShadowOpacity"] where keys.contains(key) {
+                backdrop.setValue(0, forKeyPath: "filters.glassBackground.\(key)")
+            }
         }
 
         private static func isSheetPart(_ layer: CALayer, size: CGSize) -> Bool {
