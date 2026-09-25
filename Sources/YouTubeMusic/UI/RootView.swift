@@ -172,14 +172,15 @@ struct SidebarView: View {
             VStack(alignment: .leading, spacing: 0) {
                 SidebarSearchField()
                     .padding(.bottom, 6)
+                    .zIndex(1)      // its suggestions hang over the rows below
                 ForEach(router.primaryItems) { item in
                     SidebarRow(item: .feed(item), title: item.title, symbol: item.symbol)
                 }
 
                 if hasLibrary {
-                    if !router.guide.librarySections.isEmpty {
+                    if !router.librarySections.isEmpty {
                         SidebarHeader(title: router.guide.library?.title ?? "Library")
-                        ForEach(router.guide.librarySections) { item in
+                        ForEach(router.librarySections) { item in
                             SidebarRow(item: .library(item), title: item.title, symbol: item.symbol)
                         }
                     }
@@ -255,12 +256,26 @@ private extension Card {
     }
 }
 
-/// A section title: small, bold and grey, set in a little from the rows' icons.
 /// Search, typed straight into the sidebar as in Music.app: focusing or typing opens the
 /// Search page, which updates as you type (Return searches at once). ⌘K lands here.
+/// While typing, YouTube's suggestions hang below the field: ↑/↓ move through them,
+/// Return or a click searches for one, Esc puts them away.
 private struct SidebarSearchField: View {
     @Environment(Router.self) private var router
     @FocusState private var focused: Bool
+    @State private var suggestions: [String] = []
+    /// The suggestion ↑/↓ or the pointer is on.
+    @State private var highlighted: Int?
+    /// Esc, Return or a pick puts the list away until the next keystroke.
+    @State private var dismissed = false
+    /// Text put in the field by picking a suggestion rather than typed — it asks for no
+    /// new suggestions.
+    @State private var picked: String?
+    @State private var suggestTask: Task<Void, Never>?
+
+    private var showsSuggestions: Bool {
+        focused && !dismissed && !suggestions.isEmpty && !router.searchText.isEmpty
+    }
 
     var body: some View {
         @Bindable var router = router
@@ -274,8 +289,21 @@ private struct SidebarSearchField: View {
                 .font(.system(size: 14))
                 .focused($focused)
                 .onSubmit {
+                    dismissed = true
                     router.focusSearch()
                     router.searchSubmitted += 1
+                }
+                .onKeyPress(.downArrow) { move(by: 1) }
+                .onKeyPress(.upArrow) { move(by: -1) }
+                .onKeyPress(.return) {
+                    guard showsSuggestions, let highlighted else { return .ignored }
+                    pick(suggestions[highlighted])
+                    return .handled
+                }
+                .onKeyPress(.escape) {
+                    guard showsSuggestions else { return .ignored }
+                    dismissed = true
+                    return .handled
                 }
             if !router.searchText.isEmpty {
                 Button {
@@ -305,11 +333,23 @@ private struct SidebarSearchField: View {
         }
         .contentShape(Rectangle())
         .onTapGesture { focused = true }
+        // Hangs below the field, over the rows under it (the field sits above them).
+        .overlay(alignment: .top) {
+            ZStack {
+                if showsSuggestions {
+                    suggestionList
+                        .offset(y: 38)
+                        .transition(.opacity.combined(with: .offset(y: -4)))
+                }
+            }
+            .animation(.easeOut(duration: 0.12), value: showsSuggestions)
+        }
         .onChange(of: focused) { _, isFocused in
             if isFocused, router.selection.key != SidebarItem.search.key { router.select(.search) }
         }
         .onChange(of: router.searchText) { _, text in
             if !text.isEmpty, router.selection.key != SidebarItem.search.key { router.select(.search) }
+            suggest(for: text)
         }
         .onChange(of: router.searchFocusRequest) { _, _ in focused = true }
         // Picking another page lets go of the field, so its focus ring doesn't linger.
@@ -317,6 +357,79 @@ private struct SidebarSearchField: View {
             if key != SidebarItem.search.key { focused = false }
         }
         .animation(.easeOut(duration: 0.15), value: focused)
+    }
+
+    private var suggestionList: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            ForEach(Array(suggestions.enumerated()), id: \.offset) { index, text in
+                let isHighlighted = index == highlighted
+                Button { pick(text) } label: {
+                    HStack(spacing: 8) {
+                        Image(systemName: "magnifyingglass")
+                            .font(.system(size: 11, weight: .medium))
+                            .foregroundStyle(isHighlighted ? Color.white.opacity(0.85) : Color.secondary)
+                        Text(text)
+                            .font(.system(size: 13))
+                            .foregroundStyle(isHighlighted ? Color.white : Color.primary)
+                            .lineLimit(1)
+                        Spacer(minLength: 0)
+                    }
+                    .padding(.horizontal, 8)
+                    .frame(height: 26)
+                    .background {
+                        if isHighlighted {
+                            RoundedRectangle(cornerRadius: 7, style: .continuous).fill(Theme.accent)
+                        }
+                    }
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .onHover { if $0 { highlighted = index } }
+                .help(text)
+            }
+        }
+        .padding(5)
+        .glassEffect(.regular, in: .rect(cornerRadius: 12))
+        .fixedSize(horizontal: false, vertical: true)
+    }
+
+    /// ↑/↓ through the suggestions; above the first one is the text as typed.
+    private func move(by step: Int) -> KeyPress.Result {
+        guard showsSuggestions else { return .ignored }
+        let next = (highlighted ?? -1) + step
+        highlighted = next < 0 ? nil : min(next, suggestions.count - 1)
+        return .handled
+    }
+
+    private func pick(_ suggestion: String) {
+        picked = suggestion
+        dismissed = true
+        highlighted = nil
+        router.searchText = suggestion
+        router.focusSearch()
+        router.searchSubmitted += 1
+    }
+
+    /// Asks YouTube once typing pauses for 200ms; every keystroke cancels the request
+    /// before it, so a slow answer for old text never replaces a newer one.
+    private func suggest(for text: String) {
+        suggestTask?.cancel()
+        highlighted = nil
+        guard text != picked else { return }
+        picked = nil
+        dismissed = false
+        let query = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !query.isEmpty else {
+            suggestions = []
+            return
+        }
+        suggestTask = Task {
+            try? await Task.sleep(for: .milliseconds(200))
+            guard !Task.isCancelled else { return }
+            let result = (try? await Catalog.suggestions(query)) ?? []
+            guard !Task.isCancelled else { return }
+            suggestions = Array(result.prefix(8))
+        }
     }
 }
 
@@ -504,6 +617,8 @@ struct ContentRoot: View {
             SearchView()
         case .feed(let item):
             FeedView(title: item.title, browseId: item.browseId, params: item.params)
+        case .library(let item) where item.browseId == Guide.historyId:
+            HistoryView(title: item.title)
         case .library(let item):
             LibraryView(item: item)
         case .playlist(let id, let title):

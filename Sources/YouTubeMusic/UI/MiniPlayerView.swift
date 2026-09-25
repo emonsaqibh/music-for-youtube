@@ -96,14 +96,18 @@ struct MiniPlayerView: View {
                 .shadow(color: .black.opacity(0.3), radius: 8, y: 4)
 
             VStack(alignment: .leading, spacing: 7) {
-                VStack(alignment: .leading, spacing: 1) {
-                    Text(player.current?.title ?? "Not Playing")
-                        .font(.system(size: 13, weight: .semibold))
-                        .lineLimit(1)
-                    Text(player.current?.artistLine ?? "Music for YouTube")
-                        .font(.system(size: 12))
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
+                HStack(spacing: 4) {
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text(player.current?.title ?? "Not Playing")
+                            .font(.system(size: 13, weight: .semibold))
+                            .lineLimit(1)
+                        Text(player.current?.artistLine ?? "Music for YouTube")
+                            .font(.system(size: 12))
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    LikeButton(size: 12)
                 }
                 .padding(.trailing, hovering ? 68 : 0)
 

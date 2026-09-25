@@ -72,9 +72,12 @@ struct PlaybackSlider: View {
     var framesPerSecond: Double = 20
 
     @Environment(PlayerController.self) private var player
+    /// Off screen (menu bar panel closed, window minimised or covered) the bar stands
+    /// still, and the page is told nobody is watching the position.
+    @State private var onScreen = false
 
     var body: some View {
-        let still = !player.isPlaying || player.isBuffering || player.scrubTarget != nil
+        let still = !onScreen || !player.isPlaying || player.isBuffering || player.scrubTarget != nil
         TimelineView(.animation(minimumInterval: 1 / framesPerSecond, paused: still)) { context in
             ProgressSlider(
                 value: Binding(get: { fraction(at: context.date) }, set: { _ in }),
@@ -87,6 +90,10 @@ struct PlaybackSlider: View {
                     player.seek(to: value * player.duration)
                 })
         }
+        .background(OnScreenReader { visible in
+            onScreen = visible
+            player.scrubber(isOnScreen: visible)
+        })
     }
 
     private func fraction(at date: Date) -> Double {

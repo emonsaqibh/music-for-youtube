@@ -60,7 +60,8 @@ struct YouTubeMusicApp: App {
     }
 }
 
-/// The menu bar item: a note, or — if chosen in Settings — the note and the song title.
+/// The menu bar item: the app icon's glyph, or — if chosen in Settings — the glyph (dimmed
+/// while paused) and the song title.
 private struct MenuBarLabel: View {
     private var player: PlayerController { .shared }
     private var settings: AppSettings { .shared }
@@ -68,11 +69,32 @@ private struct MenuBarLabel: View {
     var body: some View {
         if settings.menuBarShowsTitle, let track = player.current {
             let title = track.title.count > 28 ? String(track.title.prefix(27)) + "…" : track.title
-            Image(systemName: player.isPlaying ? "music.note" : "pause.fill")
+            Image(nsImage: player.isPlaying ? Self.glyph : Self.pausedGlyph)
             Text(title)
         } else {
-            Image(systemName: "music.note")
+            Image(nsImage: Self.glyph)
         }
+    }
+
+    private static let glyph = menuBarGlyph(opacity: 1)
+    private static let pausedGlyph = menuBarGlyph(opacity: 0.5)
+
+    /// The ring and play symbol of Resources/AppIcon.icon/Assets without the background,
+    /// cropped to the ring: a 16pt vector template, so the menu bar tints and highlights it.
+    /// (The label ignores SwiftUI sizing, so the image carries its own size.)
+    private static func menuBarGlyph(opacity: Double) -> NSImage {
+        let svg = """
+            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="158 158 708 708">\
+            <g opacity="\(opacity)">\
+            <path fill-rule="evenodd" d="M 180.0 512.0 A 332.0 332.0 0 1 0 844.0 512.0 A 332.0 332.0 0 1 0 180.0 512.0 Z \
+            M 250.0 512.0 A 262.0 262.0 0 1 0 774.0 512.0 A 262.0 262.0 0 1 0 250.0 512.0 Z"/>\
+            <path d="M 433.33 424.77 A 38.0 38.0 0 0 1 489.87 391.59 L 645.97 478.83 A 38.0 38.0 0 0 1 645.97 545.17 \
+            L 489.87 632.41 A 38.0 38.0 0 0 1 433.33 599.23 Z"/>\
+            </g></svg>
+            """
+        let image = NSImage(data: Data(svg.utf8))!
+        image.isTemplate = true
+        return image
     }
 }
 
@@ -173,6 +195,13 @@ struct PlaybackCommands: Commands {
             Button("Previous") { player.previous() }
                 .keyboardShortcut(.leftArrow, modifiers: .command)
                 .disabled(!player.hasTrack)
+
+            Divider()
+
+            Button(player.current.flatMap(LikeStore.shared.isLiked) == true ? "Unlike" : "Like") {
+                if let track = player.current { LikeStore.shared.toggle(track) }
+            }
+            .disabled(!player.hasTrack || !LikeStore.shared.canLike)
 
             Divider()
 

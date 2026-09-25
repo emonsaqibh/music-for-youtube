@@ -126,6 +126,8 @@ struct FullScreenPlayer: View {
                 }
             }
             Spacer(minLength: 0)
+            LikeButton(size: 15)
+                .glassEffect(.regular.interactive(), in: Circle())
             if let track = player.current {
                 Menu {
                     if let id = track.artists.first?.id {
@@ -350,6 +352,9 @@ private struct ArtworkColorsBackground: View {
     var blur: CGFloat = 0
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    /// Holds still while the window is minimised or covered: it went on drawing there,
+    /// unseen, at ~17% CPU.
+    @State private var onScreen = false
 
     /// The field is drawn at a quarter of the window's size and scaled up: it has no fine
     /// detail to lose, and blurring a small image each frame costs a fraction of blurring
@@ -359,7 +364,7 @@ private struct ArtworkColorsBackground: View {
     var body: some View {
         GeometryReader { geo in
             // The drift is slow (a ~40s cycle), so 15fps is indistinguishable from 30.
-            TimelineView(.animation(minimumInterval: 1 / 15, paused: reduceMotion)) { context in
+            TimelineView(.animation(minimumInterval: 1 / 15, paused: reduceMotion || !onScreen)) { context in
                 MeshGradient(width: 4, height: 4,
                              points: points(at: context.date.timeIntervalSinceReferenceDate),
                              colors: meshColors,
@@ -372,6 +377,7 @@ private struct ArtworkColorsBackground: View {
             .scaleEffect(downscale, anchor: .topLeading)
             .animation(.easeInOut(duration: 0.4), value: blur)
         }
+        .background(OnScreenReader { onScreen = $0 })
     }
 
     /// Corners stay put, edge points slide along their edge, inner points wander.

@@ -8,6 +8,12 @@ struct SearchView: View {
     @State private var shelves: [Shelf] = []
     @State private var state: LoadState = .empty("Search for songs, albums, artists and playlists.")
     @State private var task: Task<Void, Never>?
+    /// The next page of a filtered tab's results, and the one being fetched.
+    @State private var continuation: String?
+    @State private var loadingToken: String?
+    /// Bumped for each new set of results, which then start at the top rather than
+    /// wherever a long list before them was scrolled to.
+    @State private var resultsID = 0
     @Namespace private var filterSpace
 
     var body: some View {
@@ -30,11 +36,23 @@ struct SearchView: View {
                             trackShelf(shelf)
                         }
                     }
+
+                    if let continuation {
+                        ProgressView()
+                            .controlSize(.small)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 12)
+                            // A fresh identity per token, so reaching the end again after a
+                            // page lands asks for the next one.
+                            .id(continuation)
+                            .onAppear { Task { await loadMore() } }
+                    }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.top, 18)
                 .padding(.bottom, Theme.playerClearance)
             }
+            .id(resultsID)
             .overlay { StateOverlay(state: state) }
         }
         .onAppear {
@@ -91,6 +109,7 @@ struct SearchView: View {
     /// Debounced so typing does not fire a request per keystroke.
     private func schedule(immediate: Bool = false) {
         task?.cancel()
+        continuation = nil
         let query = router.searchText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard query.count >= 2 else {
             shelves = []
@@ -104,15 +123,45 @@ struct SearchView: View {
             }
             state = .loading
             do {
-                let result = try await Catalog.search(query, filter: filter)
+                let (result, token) = try await Catalog.searchPage(query, filter: filter)
                 guard !Task.isCancelled else { return }
-                shelves = result
+                // A filtered tab is one long list, so its tiles wrap and grow downwards as
+                // pages arrive, instead of paging sideways.
+                shelves = filter == .all ? result : result.map { shelf in
+                    var shelf = shelf
+                    shelf.isGrid = true
+                    return shelf
+                }
+                continuation = token
+                resultsID += 1
                 state = result.isEmpty ? .empty("No results for “\(query)”.") : .ready
             } catch {
                 guard !Task.isCancelled else { return }
                 shelves = []
                 state = .failed(error.localizedDescription)
             }
+        }
+    }
+
+    /// The end of a filtered tab's list came into view: add YouTube's next 20 results.
+    private func loadMore() async {
+        guard let token = continuation, loadingToken != token else { return }
+        loadingToken = token
+        defer { if loadingToken == token { loadingToken = nil } }
+        do {
+            let page = try await Catalog.searchMore(token)
+            // A new query or tab replaced the list meanwhile.
+            guard token == continuation, var shelf = shelves.last else { return }
+            shelf.tracks += page.tracks
+            var known = Set(shelf.cards.map(\.id))
+            shelf.cards += page.cards.filter { known.insert($0.id).inserted }
+            // Not animated: the rows land below the fold while the user is scrolling.
+            shelves[shelves.count - 1] = shelf
+            continuation = page.tracks.isEmpty && page.cards.isEmpty ? nil : page.continuation
+        } catch {
+            guard token == continuation else { return }
+            Log.write("search: continuation failed — \(error.localizedDescription)")
+            continuation = nil
         }
     }
 }

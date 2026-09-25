@@ -35,7 +35,7 @@ extension View {
 /// The 34pt bold heading every page opens with.
 struct PageTitle: View {
     let text: String
-    /// A small capsule after the title, e.g. "DEV" on the dev build's Home.
+    /// A small capsule after the title, e.g. "DEV · 1.3.1-dev.14" on the dev build's Home.
     var badge: String?
 
     var body: some View {
@@ -44,8 +44,9 @@ struct PageTitle: View {
                 .font(.system(size: 34, weight: .bold))
             if let badge {
                 Text(badge)
-                    .font(.system(size: 12, weight: .heavy))
-                    .tracking(0.6)
+                    .font(.system(size: 11, weight: .heavy))
+                    .tracking(0.4)
+                    .lineLimit(1)
                     .foregroundStyle(.white)
                     .padding(.horizontal, 8)
                     .padding(.vertical, 3)

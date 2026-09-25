@@ -1,42 +1,48 @@
 import AppKit
 import SwiftUI
 
-/// The panel that drops from the menu bar icon — a Now Playing card in the manner of
-/// Control Center's: artwork and title, a scrubber, transport, volume, what's up next, and
-/// the account and app shortcuts underneath, all on one sheet of Liquid Glass.
+/// The panel that drops from the menu bar icon, laid out like Control Center: no panel of
+/// its own, just separate tiles of Liquid Glass floating over the desktop. Now Playing
+/// (artwork, scrubber, transport), Sound, what's up next, and a row of small buttons for
+/// the account and the app.
 struct MenuBarPlayer: View {
-    /// The menu bar panel's own corner radius, so the glass fills it exactly.
-    static let cornerRadius: CGFloat = 18
+    /// Control Center's tile corner.
+    static let tileRadius: CGFloat = 24
+    /// The clear gap between tiles.
+    static let gap: CGFloat = 10
+    /// Clear room round the tiles inside the panel's window, so their glass shadows fade
+    /// out instead of being cut off in a hard line at the window's edge. The top stays
+    /// tight so the first tile sits just under the menu bar, as in Control Center.
+    static let shadowRoom = EdgeInsets(top: 8, leading: 28, bottom: 28, trailing: 28)
 
     @Environment(PlayerController.self) private var player
     @Environment(\.openWindow) private var openWindow
     @Environment(\.openSettings) private var openSettings
 
     var body: some View {
-        VStack(spacing: 0) {
-            if player.hasTrack {
-                nowPlaying
-                    .padding(16)
-                if !player.upNext.isEmpty {
-                    Divider().opacity(0.5)
-                    upNext
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 8)
+        // One glass group. Its spacing is under the gap, so the tiles stay apart instead
+        // of melting into each other.
+        GlassEffectContainer(spacing: 0) {
+            VStack(spacing: Self.gap) {
+                if player.hasTrack {
+                    nowPlaying.tile(padding: 16)
+                    VolumeTile().tile()
+                    if !player.upNext.isEmpty {
+                        upNext.tile(padding: 8)
+                    }
+                } else {
+                    idle.tile(padding: 22)
                 }
-            } else {
-                idle.padding(22)
+                bottomRow
             }
-            Divider().opacity(0.5)
-            footer
-                .padding(.horizontal, 10)
-                .padding(.vertical, 8)
         }
-        .frame(width: 320)
-        // System glass rather than a material, so it follows the Liquid Glass level
-        // chosen in System Settings › Appearance. The panel's own grey is cleared away.
-        .glassEffect(.regular, in: .rect(cornerRadius: Self.cornerRadius))
+        .frame(width: 330)
+        .padding(Self.shadowRoom)
+        // No panel: the window's grey is cleared here and its sheet of glass hidden by
+        // ClearPanel, which also turns off the tiles' shadows, so only the tiles draw and
+        // the gaps between them show the desktop.
         .containerBackground(.clear, for: .window)
-        .background(ShadowlessWindow())
+        .background(ClearPanel())
     }
 
     // MARK: Now playing
@@ -71,6 +77,8 @@ struct MenuBarPlayer: View {
                     }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
+                // Plain, like the tile's other small buttons: it sits on the tile's glass.
+                LikeButton(size: 14)
             }
 
             VStack(spacing: 3) {
@@ -105,8 +113,6 @@ struct MenuBarPlayer: View {
                                 isActive: player.repeatMode.isActive) { player.cycleRepeat() }
             }
             .padding(.horizontal, 4)
-
-            VolumeRow()
         }
     }
 
@@ -115,10 +121,10 @@ struct MenuBarPlayer: View {
     private var upNext: some View {
         VStack(alignment: .leading, spacing: 2) {
             Text("Up Next")
-                .font(.system(size: 11, weight: .semibold))
-                .foregroundStyle(.secondary)
+                .font(.system(size: 13, weight: .semibold))
                 .padding(.horizontal, 8)
-                .padding(.bottom, 2)
+                .padding(.top, 4)
+                .padding(.bottom, 4)
             ForEach(Array(player.upNext.prefix(3).enumerated()), id: \.offset) { offset, track in
                 Button {
                     player.go(to: player.index + 1 + offset)
@@ -173,23 +179,21 @@ struct MenuBarPlayer: View {
         .frame(maxWidth: .infinity)
     }
 
-    // MARK: Footer
+    // MARK: Bottom row
 
-    private var footer: some View {
-        HStack(spacing: 2) {
+    private var bottomRow: some View {
+        HStack(spacing: 8) {
             ProfileMenu()
             Spacer(minLength: 8)
-            TransportButton(symbol: "macwindow", size: 12) { showMainWindow() }
-                .help("Open Music for YouTube")
-            TransportButton(symbol: "pip.enter", size: 12) { openWindow(id: WindowID.miniPlayer) }
-                .help("Mini Player")
-            TransportButton(symbol: "gearshape", size: 12) {
+            RoundGlassButton(symbol: "macwindow", help: "Open Music for YouTube") { showMainWindow() }
+            RoundGlassButton(symbol: "pip.enter", help: "Mini Player") {
+                openWindow(id: WindowID.miniPlayer)
+            }
+            RoundGlassButton(symbol: "gearshape", help: "Settings") {
                 NSApp.activate()
                 openSettings()
             }
-            .help("Settings")
-            TransportButton(symbol: "power", size: 12) { NSApp.terminate(nil) }
-                .help("Quit")
+            RoundGlassButton(symbol: "power", help: "Quit") { NSApp.terminate(nil) }
         }
     }
 
@@ -209,8 +213,8 @@ extension Notification.Name {
     static let focusSearch = Notification.Name("focusSearch")
 }
 
-/// The account chip in the menu bar panel's footer: who you are listening as, and a menu
-/// to switch.
+/// The account capsule in the menu bar panel's bottom row: who you are listening as, and
+/// a menu to switch.
 private struct ProfileMenu: View {
     private var session: Session { .shared }
 
@@ -233,21 +237,24 @@ private struct ProfileMenu: View {
             }
         } label: {
             HStack(spacing: 6) {
-                AccountAvatar(profile: session.profile, size: 20)
+                AccountAvatar(profile: session.profile, size: 22)
                 Text(session.isGuest ? "Guest" : session.title(for: .account))
                     .font(.system(size: 12, weight: .medium))
                     .lineLimit(1)
+                    .frame(maxWidth: 120, alignment: .leading)
                 Image(systemName: "chevron.down")
                     .font(.system(size: 8, weight: .bold))
                     .foregroundStyle(.secondary)
             }
-            .padding(.horizontal, 7)
-            .padding(.vertical, 4)
+            .padding(.leading, 6)
+            .padding(.trailing, 11)
+            .frame(height: 34)
             .contentShape(Capsule())
         }
         .menuStyle(.button)
-        .buttonStyle(HoverRowStyle())
+        .buttonStyle(.plain)
         .menuIndicator(.hidden)
+        .glassEffect(.regular.interactive(), in: Capsule())
         .fixedSize()
         .help("Switch between your account and guest mode")
     }
@@ -262,31 +269,74 @@ private struct ProfileMenu: View {
     }
 }
 
-/// Speaker, slider, speaker — full width.
-private struct VolumeRow: View {
+/// Control Center's Sound tile: a title with the mute toggle, then speaker, slider, speaker.
+private struct VolumeTile: View {
     @Environment(PlayerController.self) private var player
 
     var body: some View {
         @Bindable var player = player
-        HStack(spacing: 9) {
-            Button { player.toggleMute() } label: {
-                Image(systemName: player.isMuted ? "speaker.slash.fill" : "speaker.fill")
-                    .font(.system(size: 10))
-                    .foregroundStyle(.secondary)
-                    .frame(width: 14)
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Text("Sound")
+                    .font(.system(size: 13, weight: .semibold))
+                Spacer()
+                TransportButton(symbol: "speaker.slash.fill", size: 11, isActive: player.isMuted) {
+                    player.toggleMute()
+                }
+                .help(player.isMuted ? "Unmute" : "Mute")
             }
-            .buttonStyle(.plain)
-            ProgressSlider(value: $player.volume, accent: .primary, trackHeight: 4)
-            Image(systemName: "speaker.wave.3.fill")
-                .font(.system(size: 10))
-                .foregroundStyle(.secondary)
+            HStack(spacing: 9) {
+                Image(systemName: player.isMuted ? "speaker.slash.fill" : "speaker.fill")
+                    .frame(width: 14)
+                ProgressSlider(value: $player.volume, accent: .primary, trackHeight: 4)
+                Image(systemName: "speaker.wave.3.fill")
+            }
+            .font(.system(size: 10))
+            .foregroundStyle(.secondary)
         }
     }
 }
 
-/// Turns off the hosting window's shadow: the glass casts its own soft one, and the
-/// window's would outline it in a hard dark edge.
-private struct ShadowlessWindow: NSViewRepresentable {
+/// A small round glass button for the bottom row.
+private struct RoundGlassButton: View {
+    let symbol: String
+    let help: String
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            Image(systemName: symbol)
+                .font(.system(size: 13, weight: .medium))
+                .foregroundStyle(Color.primary.opacity(0.85))
+                .frame(width: 34, height: 34)
+                .contentShape(Circle())
+        }
+        .buttonStyle(.plain)
+        .glassEffect(.regular.interactive(), in: Circle())
+        .help(help)
+    }
+}
+
+private extension View {
+    /// One Control Center tile: full width, on its own piece of glass.
+    func tile(padding: CGFloat = 14) -> some View {
+        self.padding(padding)
+            .frame(maxWidth: .infinity)
+            .glassEffect(.regular, in: .rect(cornerRadius: MenuBarPlayer.tileRadius, style: .continuous))
+    }
+}
+
+/// Leaves the panel's window as a bare stage for the tiles.
+///
+/// - Turns off the window's shadow: the glass casts its own soft one, and the window's
+///   would outline it in a hard dark edge.
+/// - Hides the sheet of glass SwiftUI puts behind every window-style MenuBarExtra.
+///   `.containerBackground(.clear, for: .window)` clears the panel's grey but not that
+///   glass, and no public modifier removes it; left in, it fills the gaps between the
+///   tiles. It is the one glass whose shape fills the whole window (no tile does: the
+///   bottom row always sits apart), and hiding it is only a layer's `isHidden`. If a later
+///   macOS draws it differently, nothing matches and the gaps are simply glass again.
+private struct ClearPanel: NSViewRepresentable {
     func makeNSView(context: Context) -> NSView { Probe() }
     func updateNSView(_ nsView: NSView, context: Context) {}
 
@@ -294,6 +344,95 @@ private struct ShadowlessWindow: NSViewRepresentable {
         override func viewDidMoveToWindow() {
             super.viewDidMoveToWindow()
             window?.hasShadow = false
+            hidePanelGlass()
+        }
+
+        // The panel resizes with its content (playing ⇄ idle, Up Next coming and going).
+        override func setFrameSize(_ newSize: NSSize) {
+            super.setFrameSize(newSize)
+            hidePanelGlass()
+        }
+
+        private var observers: [any NSObjectProtocol] = []
+
+        override init(frame: NSRect) {
+            super.init(frame: frame)
+            // Reopening the panel and a new glass level both redraw the glass with its
+            // default settings, shadow included.
+            let center = NotificationCenter.default
+            observers.append(center.addObserver(
+                forName: Notification.Name("NSGlassEffectDiffusionDidChangeNotification"), object: nil, queue: .main
+            ) { [weak self] _ in
+                MainActor.assumeIsolated { self?.hidePanelGlass() }
+            })
+            observers.append(center.addObserver(
+                forName: NSWindow.didChangeOcclusionStateNotification, object: nil, queue: .main
+            ) { [weak self] note in
+                MainActor.assumeIsolated {
+                    guard let self, let window = self.window, note.object as? NSWindow === window,
+                          window.occlusionState.contains(.visible) else { return }
+                    self.hidePanelGlass()
+                }
+            })
+        }
+
+        required init?(coder: NSCoder) { fatalError() }
+
+        deinit {
+            observers.forEach { NotificationCenter.default.removeObserver($0) }
+        }
+
+        private func hidePanelGlass() {
+            // On the next turn, once SwiftUI has drawn this pass.
+            DispatchQueue.main.async { [weak self] in
+                guard let root = self?.window?.contentView?.superview?.layer else { return }
+                Self.hideGlass(filling: root.bounds.size, under: root)
+            }
+        }
+
+        private static func hideGlass(filling size: CGSize, under layer: CALayer) {
+            if NSStringFromClass(type(of: layer)) == "CABackdropLayer" {
+                if contains(elementOfSize: size, layer) {
+                    // The sheet is drawn in three sibling layers: the blur (this one), and
+                    // after it a portal and the layer that draws its rim and shadow. Left
+                    // alone, those outline the whole panel and dim the gaps between tiles.
+                    layer.isHidden = true
+                    for sibling in layer.superlayer?.sublayers ?? [] where isSheetPart(sibling, size: size) {
+                        sibling.isHidden = true
+                    }
+                } else {
+                    dropShadow(layer)
+                }
+                return
+            }
+            for sublayer in layer.sublayers ?? [] { hideGlass(filling: size, under: sublayer) }
+        }
+
+        /// The tiles' glass casts a shadow about 24pt wide. In the 10pt gaps two of them
+        /// overlap and dim the desktop by about 10%, a grey band between tiles; Control
+        /// Center's tiles cast none. Only settings the glass filter actually has are touched,
+        /// so a later macOS that renames them just keeps its shadow.
+        private static func dropShadow(_ backdrop: CALayer) {
+            guard let glass = backdrop.filters?.lazy.compactMap({ $0 as? NSObject })
+                    .first(where: { $0.value(forKey: "name") as? String == "glassBackground" }),
+                  let keys = glass.value(forKey: "inputKeys") as? [String] else { return }
+            for key in ["inputShadowOpacity", "inputRingShadowOpacity"] where keys.contains(key) {
+                backdrop.setValue(0, forKeyPath: "filters.glassBackground.\(key)")
+            }
+        }
+
+        private static func isSheetPart(_ layer: CALayer, size: CGSize) -> Bool {
+            let name = NSStringFromClass(type(of: layer))
+            return name == "CASDFLayer"
+                && abs(layer.frame.width - size.width) < 1 && abs(layer.frame.height - size.height) < 1
+        }
+
+        private static func contains(elementOfSize size: CGSize, _ layer: CALayer) -> Bool {
+            if NSStringFromClass(type(of: layer)) == "CASDFElementLayer",
+               abs(layer.frame.width - size.width) < 1, abs(layer.frame.height - size.height) < 1 {
+                return true
+            }
+            return (layer.sublayers ?? []).contains { contains(elementOfSize: size, $0) }
         }
     }
 }
