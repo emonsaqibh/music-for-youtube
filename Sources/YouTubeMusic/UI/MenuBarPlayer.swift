@@ -10,6 +10,10 @@ struct MenuBarPlayer: View {
     static let tileRadius: CGFloat = 24
     /// The clear gap between tiles.
     static let gap: CGFloat = 10
+    /// Clear room round the tiles inside the panel's window, so their glass shadows fade
+    /// out instead of being cut off in a hard line at the window's edge. The top stays
+    /// tight so the first tile sits just under the menu bar, as in Control Center.
+    static let shadowRoom = EdgeInsets(top: 8, leading: 28, bottom: 28, trailing: 28)
 
     @Environment(PlayerController.self) private var player
     @Environment(\.openWindow) private var openWindow
@@ -33,6 +37,7 @@ struct MenuBarPlayer: View {
             }
         }
         .frame(width: 330)
+        .padding(Self.shadowRoom)
         // No panel: the window's grey is cleared here and its sheet of glass hidden by
         // ClearPanel, so only the tiles draw and the gaps between them show the desktop.
         .containerBackground(.clear, for: .window)
@@ -357,10 +362,24 @@ private struct ClearPanel: NSViewRepresentable {
 
         private static func hideGlass(filling size: CGSize, under layer: CALayer) {
             if NSStringFromClass(type(of: layer)) == "CABackdropLayer" {
-                if contains(elementOfSize: size, layer) { layer.isHidden = true }
+                if contains(elementOfSize: size, layer) {
+                    // The sheet is drawn in three sibling layers: the blur (this one), and
+                    // after it a portal and the layer that draws its rim and shadow. Left
+                    // alone, those outline the whole panel and dim the gaps between tiles.
+                    layer.isHidden = true
+                    for sibling in layer.superlayer?.sublayers ?? [] where isSheetPart(sibling, size: size) {
+                        sibling.isHidden = true
+                    }
+                }
                 return
             }
             for sublayer in layer.sublayers ?? [] { hideGlass(filling: size, under: sublayer) }
+        }
+
+        private static func isSheetPart(_ layer: CALayer, size: CGSize) -> Bool {
+            let name = NSStringFromClass(type(of: layer))
+            return name == "CASDFLayer"
+                && abs(layer.frame.width - size.width) < 1 && abs(layer.frame.height - size.height) < 1
         }
 
         private static func contains(elementOfSize size: CGSize, _ layer: CALayer) -> Bool {
