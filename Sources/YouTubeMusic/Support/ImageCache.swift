@@ -41,6 +41,9 @@ final class ImageCache {
 
     private init() {
         memory.totalCostLimit = 192 << 20
+        // Small entries, but one per song or page ever shown: bounded like the rest.
+        colors.countLimit = 500
+        ambients.countLimit = 100
         let config = URLSessionConfiguration.default
         config.urlCache = URLCache(memoryCapacity: 32 << 20, diskCapacity: 512 << 20)
         config.requestCachePolicy = .returnCacheDataElseLoad
