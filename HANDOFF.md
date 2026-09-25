@@ -376,11 +376,16 @@ lands (animations off for that instant, so nothing jumps). Don't add a zero-dist
 DragGesture to tap-able views for press effects — on macOS it swallows the tap (tried; the
 sidebar stopped responding). Use a Button with `.pressable` instead.
 Keep every animation scoped (`.animation(_:value:)` on the view that moves, or
-`withAnimation` around local state only). Never wrap a navigation change (`router.select`,
-the stack's path, the content root's identity) or anything on the split view itself in an
-animation: AppKit then resizes the split view's hosting views mid-layout, safe-area
-invalidation re-requests constraints, and the window aborts with
-`_postWindowNeedsUpdateConstraints` (crashed the dev build twice in a minute).
+`withAnimation` around local state only); don't animate navigation or the split view.
+
+**The `_postWindowNeedsUpdateConstraints` crash** (1.3.0; present since 1.2.0) was not the
+animations. The exception backtrace names it: `SplitViewChildController … didUpdateMinSize`.
+A split view column takes its minimum width from its content, and a playlist page reports a
+new minimum on each pass while the queue panel is open, until AppKit aborts. Everything in a
+column goes through `.anyWidth()` (RootView.swift), which pins the minimum at 0. Reproduce as
+a guest with `--demo --demo-playlist` (unfixed code crashes at about 7s). `--demo-long-queue`
+queues 2,000 songs. The queue is a `List` again (AppKit's table: only visible rows exist,
+plus 100-at-a-time paging) instead of the custom drag stack.
 
 ## 4. Next
 

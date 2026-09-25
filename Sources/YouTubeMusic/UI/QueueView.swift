@@ -21,7 +21,7 @@ struct QueueView: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .padding(.horizontal, 30)
             } else {
-                ReorderableQueue(bottomClearance: compactHeader ? 60 : Theme.playerClearance - 40)
+                QueueList(bottomClearance: compactHeader ? 60 : Theme.playerClearance - 40)
             }
         }
     }
@@ -92,8 +92,6 @@ struct QueueView: View {
 
 private struct QueueRow: View {
     let track: Track
-    /// Being dragged: raised off the list, as iOS lifts a row.
-    var isLifted = false
     let onPlay: () -> Void
 
     @State private var hovering = false
@@ -124,124 +122,78 @@ private struct QueueRow: View {
                 .font(.system(size: 12, weight: .medium))
                 .foregroundStyle(.tertiary)
                 .opacity(hovering ? 1 : 0)
-                .help("Drag to reorder")
         }
         .padding(.vertical, 3)
         .padding(.horizontal, 6)
         .background {
             RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .fill(isLifted ? AnyShapeStyle(.regularMaterial)
-                      : AnyShapeStyle(Color.primary.opacity(hovering ? 0.06 : 0)))
-                .shadow(color: .black.opacity(isLifted ? 0.28 : 0), radius: isLifted ? 12 : 0, y: isLifted ? 6 : 0)
+                .fill(Color.primary.opacity(hovering ? 0.06 : 0))
         }
-        .scaleEffect(isLifted ? 1.035 : 1)
         .contentShape(Rectangle())
         .onHover { hovering = $0 }
         .onTapGesture(perform: onPlay)
     }
 }
 
-/// "Playing Next", reordered by dragging the way iOS lists do: the song lifts under the
-/// pointer, the others slide aside on springs as it passes, and on release it settles into
-/// its slot. Rows have one fixed height, so every position is arithmetic, not measurement.
-private struct ReorderableQueue: View {
+/// "Playing Next". A `List`, not a stack in a scroll view: it's AppKit's table underneath,
+/// so only the rows on screen exist however long the queue is, and dragging a row to
+/// reorder is the table's own animation. (A hand-built lazy stack here made the window
+/// relayout in a loop and abort once the queue got long — see HANDOFF, Motion.)
+private struct QueueList: View {
     let bottomClearance: CGFloat
 
     @Environment(PlayerController.self) private var player
 
-    private static let rowHeight: CGFloat = 48
-    private static let settle = Animation.spring(response: 0.32, dampingFraction: 0.82)
-
-    /// The row being dragged, where the pointer has taken it, and the slot it would land in.
-    @State private var dragged: Int?
-    @State private var dragOffset: CGFloat = 0
-    @State private var target: Int?
-
-    /// Stable identities: a song queued twice gets "#2", so SwiftUI never sees duplicates.
-    private var rows: [(id: String, track: Track)] {
-        var seen: [String: Int] = [:]
-        return player.upNext.map { track in
-            let n = (seen[track.id] ?? 0) + 1
-            seen[track.id] = n
-            return (n == 1 ? track.id : "\(track.id)#\(n)", track)
-        }
-    }
+    /// How many songs are listed. A playlist can queue thousands; the rest are revealed
+    /// a page at a time as the end of the list scrolls into view.
+    @State private var shown = Self.page
+    private static let page = 100
 
     var body: some View {
-        let rows = rows
-        ScrollView {
-            LazyVStack(spacing: 0) {
-                ForEach(Array(rows.enumerated()), id: \.element.id) { offset, row in
-                    let position = player.index + 1 + offset
-                    let lifted = dragged == offset
-                    QueueRow(track: row.track, isLifted: lifted) { player.go(to: position) }
-                        .frame(height: Self.rowHeight)
-                        .contextMenu { menu(offset: offset, position: position, count: rows.count) }
-                        .offset(y: yOffset(for: offset))
-                        .zIndex(lifted ? 1 : 0)
-                        .gesture(drag(for: offset, count: rows.count))
-                }
-            }
-            .padding(.horizontal, 8)
-            .padding(.bottom, bottomClearance)
-            // Songs added (Play Next) or removed slide rather than jump. A drop turns this off
-            // for the instant its data catches up with what's already on screen.
-            .animation(Self.settle, value: rows.map(\.id))
-        }
-        .scrollIndicators(.automatic)
-    }
+        let upNext = player.upNext
+        let rows = Self.rows(upNext.prefix(shown))
+        let base = player.index + 1
 
-    /// Where a row sits while something is being dragged.
-    private func yOffset(for offset: Int) -> CGFloat {
-        guard let dragged, let target else { return 0 }
-        if offset == dragged { return dragOffset }
-        if dragged < target, offset > dragged, offset <= target { return -Self.rowHeight }
-        if dragged > target, offset >= target, offset < dragged { return Self.rowHeight }
-        return 0
-    }
-
-    private func drag(for offset: Int, count: Int) -> some Gesture {
-        DragGesture(minimumDistance: 4)
-            .onChanged { value in
-                if dragged == nil {
-                    withAnimation(.spring(response: 0.25, dampingFraction: 0.7)) {
-                        dragged = offset
-                        target = offset
+        List {
+            ForEach(rows, id: \.id) { row in
+                let position = base + row.offset
+                QueueRow(track: row.track) { player.go(to: position) }
+                    .contextMenu { menu(offset: row.offset, position: position, count: upNext.count) }
+                    .listRowSeparator(.hidden)
+                    .listRowInsets(EdgeInsets(top: 1, leading: 8, bottom: 1, trailing: 8))
+                    .onAppear {
+                        if row.offset == rows.count - 1, shown < upNext.count { shown += Self.page }
                     }
-                }
-                dragOffset = value.translation.height
-                let slot = min(max(offset + Int((dragOffset / Self.rowHeight).rounded()), 0), count - 1)
-                if slot != target {
-                    withAnimation(Self.settle) { target = slot }
-                }
             }
-            .onEnded { _ in drop(from: offset) }
-    }
+            .onMove { source, destination in
+                player.moveInQueue(from: IndexSet(source.map { $0 + base }), to: destination + base)
+            }
+            .onDelete { offsets in
+                player.removeFromQueue(at: IndexSet(offsets.map { $0 + base }))
+            }
 
-    /// Springs the song into its slot, then moves it in the queue once it's there — with
-    /// animations off, since the screen already shows the result.
-    private func drop(from offset: Int) {
-        guard let target else { return clear() }
-        withAnimation(Self.settle) {
-            dragOffset = CGFloat(target - offset) * Self.rowHeight
-        } completion: {
-            var still = Transaction()
-            still.disablesAnimations = true
-            withTransaction(still) {
-                if target != offset {
-                    let base = player.index + 1
-                    player.moveInQueue(from: [base + offset],
-                                       to: base + target + (target > offset ? 1 : 0))
-                }
-                clear()
+            if upNext.count > rows.count {
+                Text("\(upNext.count - rows.count) more")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.tertiary)
+                    .frame(maxWidth: .infinity)
+                    .listRowSeparator(.hidden)
+                    .onAppear { shown += Self.page }
             }
         }
+        .listStyle(.plain)
+        .scrollContentBackground(.hidden)
+        .safeAreaInset(edge: .bottom) { Color.clear.frame(height: bottomClearance) }
     }
 
-    private func clear() {
-        dragged = nil
-        target = nil
-        dragOffset = 0
+    /// Stable identities: a song queued twice gets "#2", so the list never sees duplicates.
+    private static func rows(_ tracks: ArraySlice<Track>) -> [(id: String, offset: Int, track: Track)] {
+        var seen: [String: Int] = [:]
+        return tracks.enumerated().map { offset, track in
+            let n = (seen[track.id] ?? 0) + 1
+            seen[track.id] = n
+            return (n == 1 ? track.id : "\(track.id)#\(n)", offset, track)
+        }
     }
 
     @ViewBuilder

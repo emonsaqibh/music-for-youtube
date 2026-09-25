@@ -59,6 +59,9 @@ final class Router {
     /// bottom centre, so this is where the full-screen player grows from and shrinks back
     /// to. Not observed: it's only read when the player opens or closes.
     @ObservationIgnored var detailFrame: CGRect = .zero
+    /// The full-screen overlay's origin in the same coordinates. Not observed either: a
+    /// geometry write that re-renders the root view mid-layout crashes the window.
+    @ObservationIgnored var overlayOrigin: CGPoint = .zero
 
     /// YouTube Music's navigation. Starts from the last fetched copy so the sidebar is
     /// complete on the first frame, then refreshes in the background.

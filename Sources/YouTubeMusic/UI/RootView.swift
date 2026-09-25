@@ -3,8 +3,6 @@ import SwiftUI
 
 struct RootView: View {
     @State private var router = Router()
-    /// The overlay's origin on screen, to turn the pill's frame into the player's coordinates.
-    @State private var overlayOrigin: CGPoint = .zero
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     private var player: PlayerController { .shared }
 
@@ -21,12 +19,15 @@ struct RootView: View {
             NavigationStack(path: $router.path) {
                 ContentRoot()
                     .withPlayerPill()
+                    .anyWidth()
                     .navigationDestination(for: Route.self) {
                         RouteView(route: $0)
                             .withPlayerPill()
                             .hidesBackButtonUnderFullScreenPlayer()
+                            .anyWidth()
                     }
             }
+            .anyWidth()
             .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { router.detailFrame = $0 }
         }
         .inspector(isPresented: $router.isPanelPresented) {
@@ -36,6 +37,7 @@ struct RootView: View {
                 default: QueueView()
                 }
             }
+            .anyWidth()
             .inspectorColumnWidth(min: 270, ideal: 320, max: 440)
         }
         .overlay {
@@ -47,11 +49,15 @@ struct RootView: View {
                     // The pill itself stretches into the player, and back.
                     FullScreenPlayer()
                         .transition(reduceMotion ? .opacity : .pillMorph(
-                            detail: router.detailFrame.offsetBy(dx: -overlayOrigin.x, dy: -overlayOrigin.y),
-                            topInset: overlayOrigin.y))
+                            detail: router.detailFrame.offsetBy(dx: -router.overlayOrigin.x,
+                                                                dy: -router.overlayOrigin.y),
+                            topInset: router.overlayOrigin.y))
                 }
             }
-            .onGeometryChange(for: CGPoint.self) { $0.frame(in: .global).origin } action: { overlayOrigin = $0 }
+            // Into the router, not @State: a state write here re-renders the root view,
+            // which owns the toolbar, mid-layout — the window then relayouts in a loop and
+            // aborts. That crashed 1.3.0 whenever the queue panel opened or closed.
+            .onGeometryChange(for: CGPoint.self) { $0.frame(in: .global).origin } action: { router.overlayOrigin = $0 }
             .animation(Motion.expand, value: router.showFullScreenPlayer)
         }
         .overlay(alignment: .bottom) {
@@ -81,6 +87,11 @@ struct RootView: View {
         .onReceive(NotificationCenter.default.publisher(for: .libraryDidChange)) { _ in
             Task { await router.reloadPlaylists() }
         }
+        .onReceive(NotificationCenter.default.publisher(for: .demoOpenPlaylist)) { note in
+            if let id = note.userInfo?["id"] as? String {
+                router.select(.playlist(id: id, title: note.userInfo?["title"] as? String ?? "Playlist"))
+            }
+        }
         .onReceive(NotificationCenter.default.publisher(for: .showFullScreenPlayer)) { _ in
             if player.hasTrack { router.showFullScreenPlayer = true }
         }
@@ -103,6 +114,17 @@ private extension View {
     /// stack and would hide the player on every album, artist or playlist.
     func withPlayerPill() -> some View {
         overlay(alignment: .bottom) { PlayerPill() }
+    }
+
+    /// Takes whatever width its column is given, whatever the content inside would need.
+    /// A split view column's minimum width comes from its content; a page whose layout
+    /// changes with its width (a playlist's header, the album column) then reports a new
+    /// minimum on every pass, and AppKit re-runs constraints until it aborts the app
+    /// (`SplitViewChildController … didUpdateMinSize` → `_postWindowNeedsUpdateConstraints`).
+    /// With both bounds set, the frame sizes from the proposal, not the content, so the
+    /// column's minimum stays 0 and only the split view's own column widths apply.
+    func anyWidth() -> some View {
+        frame(minWidth: 0, maxWidth: .infinity)
     }
 }
 
