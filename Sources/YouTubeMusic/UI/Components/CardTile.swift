@@ -72,9 +72,16 @@ struct CardTile: View {
 
     /// A song or video tile, as the track it plays.
     private var songTrack: Track? {
-        card.videoId.map {
-            Track(id: $0, title: card.title, artists: [ArtistRef(id: nil, name: card.subtitle)],
-                  artwork: card.artwork)
+        card.videoId.map { videoId in
+            // The subtitle reads "Song · Udit Narayan · 5:54": keep the artists and the
+            // duration, drop the type label and any view or play count.
+            let parts = card.subtitle.components(separatedBy: " · ")
+            let artist = parts.first {
+                Parse.kind(fromSubtitle: $0) == nil && Format.parseDuration($0) == nil
+                    && !$0.lowercased().contains("views") && !$0.lowercased().contains("plays")
+            }
+            return Track(id: videoId, title: card.title, artists: artist.map { [ArtistRef(id: nil, name: $0)] } ?? [],
+                         artwork: card.artwork, seconds: parts.lazy.compactMap { Format.parseDuration($0) }.first)
         }
     }
 
@@ -97,7 +104,7 @@ struct CardTile: View {
 
     private func playNow() {
         if let track = songTrack {
-            player.play(track, source: card.subtitle)
+            player.play(track)
         } else if let playlistId = card.playlistId {
             Task {
                 guard let tracks = try? await Catalog.tracks(inPlaylist: playlistId), !tracks.isEmpty else { return }

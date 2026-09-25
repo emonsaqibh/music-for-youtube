@@ -333,15 +333,18 @@ enum Parse {
     private static func topResult(_ r: JSON, index: Int) -> Shelf? {
         var shelf = Shelf(id: "top-\(index)", title: r[path: "header.musicCardShelfHeaderBasicRenderer.title"].text ?? "Top result")
         guard let title = r["title"].text else { return nil }
-        let browse = r["title"].first("browseEndpoint") ?? r.first("browseEndpoint") ?? .null
+        // Only the title's own link (or the card's tap) says what the result is: the
+        // subtitle links a song's artist, which would make it an artist.
+        let browse = r["title"].first("browseEndpoint") ?? r["onTap"]["browseEndpoint"]
         let video = videoId(in: r["title"]) ?? videoId(in: r["buttons"])
-        let subtitle = r["subtitle"]["runs"].arrayValue
-            .compactMap { $0["text"].stringValue }.joined()
-            .replacingOccurrences(of: " • ", with: " · ")
+        let subtitleRuns = r["subtitle"]["runs"].arrayValue.compactMap { $0["text"].stringValue }
+        let subtitle = subtitleRuns.joined().replacingOccurrences(of: " • ", with: " · ")
 
         shelf.cards.append(Card(
             id: browse["browseId"].stringValue ?? video ?? title,
-            kind: pageKind(browse) ?? (video != nil ? .song : .other),
+            kind: pageKind(browse)
+                ?? subtitleRuns.first.flatMap(kind(fromSubtitle:))
+                ?? (video != nil ? .song : .other),
             title: title,
             subtitle: subtitle,
             artwork: artwork(r, size: 544),
@@ -379,6 +382,55 @@ enum Parse {
             sections = response.all("gridRenderer").map { JSON.object(["gridRenderer": $0]) }
         }
         return sections.enumerated().compactMap { shelf($0.element, index: $0.offset) }
+    }
+
+    // MARK: - Search
+
+    /// Search results. Besides titled shelves, YouTube may send the All tab as one flat
+    /// run of single-row `itemSectionRenderer`s after the top result, each row labelled
+    /// with its type ("Song • Udit Narayan"). Those are grouped under the website's
+    /// headings, in its order.
+    static func searchResults(in response: JSON) -> [Shelf] {
+        var groups: [String: Shelf] = [:]
+        var seen: [String] = []
+        for section in response.all("itemSectionRenderer") {
+            for item in section["contents"].arrayValue {
+                let row = item["musicResponsiveListItemRenderer"]
+                guard row.exists else { continue }
+                let title = searchGroup(row)
+                var shelf = groups[title] ?? Shelf(id: "search-\(title)", title: title)
+                if let t = track(row) { shelf.tracks.append(t) }
+                else if let c = cardFromRow(row) { shelf.cards.append(c) }
+                else { continue }
+                if groups[title] == nil { seen.append(title) }
+                groups[title] = shelf
+            }
+        }
+        let order = searchGroupOrder.filter(seen.contains) + seen.filter { !searchGroupOrder.contains($0) }
+        return shelves(in: response) + order.compactMap { groups[$0] }
+    }
+
+    private static let searchGroupOrder = [
+        "Songs", "Videos", "Artists", "Albums", "Community playlists", "Featured playlists",
+        "Episodes", "Podcasts", "Profiles",
+    ]
+
+    /// The heading a flat search row belongs under, from its type label.
+    private static func searchGroup(_ row: JSON) -> String {
+        let runs = flexText(row, 1)["runs"].arrayValue.compactMap { $0["text"].stringValue }
+        let label = runs.first ?? ""
+        switch label.lowercased() {
+        case "song": return "Songs"
+        case "video": return "Videos"
+        case "artist": return "Artists"
+        case "album", "single", "ep": return "Albums"
+        // YouTube Music's own playlists are "Featured"; everyone else's are "Community".
+        case "playlist": return runs.count > 2 && runs[2] == "YouTube Music" ? "Featured playlists" : "Community playlists"
+        case "episode": return "Episodes"
+        case "podcast": return "Podcasts"
+        case "profile": return "Profiles"
+        default: return label.isEmpty ? "More" : label
+        }
     }
 
     // MARK: - Feeds

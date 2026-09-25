@@ -137,7 +137,7 @@ enum Catalog {
     static func search(_ query: String, filter: SearchFilter = .all) async throws -> [Shelf] {
         var body: [String: Any] = ["query": query]
         if let params = filter.params { body["params"] = params }
-        return Parse.shelves(in: try await engine.innertube("search", body))
+        return Parse.searchResults(in: try await engine.innertube("search", body))
     }
 
     static func suggestions(_ query: String) async throws -> [String] {
