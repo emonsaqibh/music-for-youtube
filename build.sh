@@ -66,9 +66,15 @@ if [ -d Resources/AppIcon.icon ]; then
             "$ICON/icon.json"
     fi
     # Icon Composer document → Assets.car (Liquid Glass, dark / tinted / clear) + AppIcon.icns.
-    xcrun actool "$ICON" --compile "$APP/Contents/Resources" \
+    # Absolute paths only: actool hands the job to a shared ibtoold daemon, which resolves
+    # relative ones against its own working directory — whichever checkout started it — so
+    # with several worktrees the icon silently went into another worktree's build.
+    mkdir -p build
+    abs() { case "$1" in /*) echo "$1" ;; *) echo "$PWD/$1" ;; esac; }
+    xcrun actool "$(abs "$ICON")" --compile "$(abs "$APP/Contents/Resources")" \
         --app-icon AppIcon --platform macosx --minimum-deployment-target 26.0 \
-        --target-device mac --output-partial-info-plist "build/icon-partial.plist" >/dev/null
+        --target-device mac --output-partial-info-plist "$PWD/build/icon-partial.plist" >/dev/null
+    [ -f "$APP/Contents/Resources/Assets.car" ] || { echo "actool left no icon in $APP" >&2; exit 1; }
 elif [ -f Resources/AppIcon.icns ]; then
     cp Resources/AppIcon.icns "$APP/Contents/Resources/AppIcon.icns"
 fi
