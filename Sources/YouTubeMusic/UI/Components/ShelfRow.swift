@@ -143,7 +143,8 @@ struct FeedView: View {
                 VStack(alignment: .leading, spacing: 14) {
                     HStack(alignment: .center, spacing: 0) {
                         PageTitle(text: title,
-                                  badge: BuildFlavor.isDev && browseId == "FEmusic_home" ? "DEV" : nil)
+                                  badge: BuildFlavor.isDev && browseId == "FEmusic_home"
+                                      ? "DEV · \(BuildFlavor.versionLabel)" : nil)
                         if isSwitching {
                             ProgressView().controlSize(.small).padding(.top, Theme.contentTop)
                         }

@@ -20,7 +20,17 @@ case "$FLAVOR" in
         CONF="${CONF:-release}"
         APP_NAME="Music for YouTube Dev"
         BUNDLE_ID="${BASE_ID}.dev"
+        # A readable version from git, so dev builds can be told apart: v1.3.1-14-g6160965
+        # → "1.3.1-dev.14", plus " · search" when built on feature/search. Plain "dev" when
+        # there's no git or no tag.
+        if [ -z "${VERSION:-}" ] && DESCRIBE="$(git describe --tags --match 'v*' --long 2>/dev/null)"; then
+            REST="${DESCRIBE#v}"; REST="${REST%-g*}"          # 1.3.1-14
+            VERSION="${REST%-*}-dev.${REST##*-}"
+            BRANCH="$(git symbolic-ref --short -q HEAD || true)"
+            case "$BRANCH" in ""|dev|main) ;; *) VERSION="$VERSION · ${BRANCH#feature/}" ;; esac
+        fi
         VERSION="${VERSION:-dev}"
+        COMMIT="$(git rev-parse --short HEAD 2>/dev/null || true)"
         BUILD_NUMBER="$(date +%Y%m%d%H%M)"
         ;;
     beta)
@@ -50,6 +60,11 @@ $PB -c "Set :CFBundleIdentifier $BUNDLE_ID" \
     -c "Set :CFBundleShortVersionString $VERSION" \
     -c "Set :CFBundleVersion $BUILD_NUMBER" \
     "$APP/Contents/Info.plist"
+if [ -n "${COMMIT:-}" ]; then
+    # Shown in Settings ▸ About next to the version.
+    $PB -c "Add :YTMCommit string $COMMIT" "$APP/Contents/Info.plist" 2>/dev/null \
+        || $PB -c "Set :YTMCommit $COMMIT" "$APP/Contents/Info.plist"
+fi
 if [ -d Resources/AppIcon.icon ]; then
     ICON=Resources/AppIcon.icon
     if [ "$FLAVOR" = dev ]; then
