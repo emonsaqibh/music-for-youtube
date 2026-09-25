@@ -61,7 +61,7 @@ Real fix for Gatekeeper = Developer ID + notarization (paid account, none yet).
 All development and testing uses the **dev** build. A release is frozen: `release.sh`
 builds in release config, saves the app and a `source.tar.gz` snapshot under
 `releases/<version>/`, installs it to `/Applications`, and refuses to reuse a version.
-Current release: **1.3.0** (2026-09-24; fluid motion, pill-to-full-screen morph, Liquid Glass players). 1.0.0 was the first stable build. Betas before it: 0.1.0-beta.1 … 0.2.0-beta.5.
+Current release: **1.3.1** (2026-09-25; queue/playlist crash fix, search All tab, new bundle ID dev.emonsaqib.ytmusic). 1.0.0 was the first stable build. Betas before it: 0.1.0-beta.1 … 0.2.0-beta.5.
 
 ### Launch flags
 
