@@ -346,6 +346,17 @@ final class WebEngine: NSObject {
         return PlayerSnapshot(d)
     }
 
+    /// Whether a scrubber is on screen. Without one nobody is watching the position move,
+    /// so the page reports it every 5s instead of twice a second. Changes of state, track
+    /// or volume, and jumps, still arrive within half a second.
+    private(set) var positionWatched = false
+
+    func setPositionWatched(_ watched: Bool) {
+        guard watched != positionWatched else { return }
+        positionWatched = watched
+        webView.evaluateJavaScript("window.__ytm && window.__ytm.setWatched(\(watched))")
+    }
+
     func setPageMetadata(title: String, artist: String, album: String, artwork: String?) async {
         _ = try? await call(
             "return window.__ytm ? window.__ytm.setMetadata(meta) : false;",
@@ -427,6 +438,8 @@ extension WebEngine: WKScriptMessageHandler {
         case "ready":
             isBound = true
             if Self.tracesPerf { webView.evaluateJavaScript("window.__ytmTracePerf = true") }
+            // A new page starts out watched.
+            if !positionWatched { webView.evaluateJavaScript("window.__ytm.setWatched(false)") }
             if let signedIn = payload["signedIn"] as? Bool { Session.shared.pageReported(signedIn: signedIn) }
             let snap = PlayerSnapshot(payload["snapshot"] as? [String: Any] ?? [:])
             emit(.ready(signedIn: isSignedIn, snapshot: snap))

@@ -73,7 +73,7 @@ struct PlaybackSlider: View {
 
     @Environment(PlayerController.self) private var player
     /// Off screen (menu bar panel closed, window minimised or covered) the bar stands
-    /// still.
+    /// still, and the page is told nobody is watching the position.
     @State private var onScreen = false
 
     var body: some View {
@@ -90,7 +90,10 @@ struct PlaybackSlider: View {
                     player.seek(to: value * player.duration)
                 })
         }
-        .background(OnScreenReader { onScreen = $0 })
+        .background(OnScreenReader { visible in
+            onScreen = visible
+            player.scrubber(isOnScreen: visible)
+        })
     }
 
     private func fraction(at date: Date) -> Double {
