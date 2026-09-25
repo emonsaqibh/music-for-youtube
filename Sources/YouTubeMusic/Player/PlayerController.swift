@@ -74,9 +74,13 @@ final class PlayerController {
     /// The bridge only reports every 500ms, which is too coarse for synced lyrics — a line
     /// would light up as much as half a second late. Views that need it poll this on
     /// their own clock rather than making `position` itself tick faster.
+    ///
+    /// Extrapolation is capped a little past the next report, so a bar never runs on far if
+    /// the reports stop. With no scrubber on screen they come only every 5s.
     func livePosition(at date: Date = .now) -> Double {
         guard scrubTarget == nil, isPlaying, !isBuffering else { return displayPosition }
-        let elapsed = min(max(0, date.timeIntervalSince(positionStamp)), 1.5)
+        let cap = scrubbersOnScreen > 0 ? 1.5 : 6
+        let elapsed = min(max(0, date.timeIntervalSince(positionStamp)), cap)
         let live = position + elapsed
         return duration > 0 ? min(duration, live) : live
     }
@@ -93,6 +97,8 @@ final class PlayerController {
     private var didApplyInitialVolume = false
     private var scrubExpiry: Task<Void, Never>?
     @ObservationIgnored private var positionStamp = Date.now
+    /// Scrubbers on screen now (pill, full-screen, mini player, menu bar panel).
+    @ObservationIgnored private var scrubbersOnScreen = 0
 
     private init() {}
 
@@ -108,6 +114,13 @@ final class PlayerController {
         engine.start()
         NowPlaying.shared.install()
         GlobalHotkeys.install()
+    }
+
+    /// Called by each scrubber as it comes on or goes off screen. With none showing, the
+    /// page reports the position less often.
+    func scrubber(isOnScreen: Bool) {
+        scrubbersOnScreen = max(0, scrubbersOnScreen + (isOnScreen ? 1 : -1))
+        engine.setPositionWatched(scrubbersOnScreen > 0)
     }
 
     private func armScrubExpiry() {
@@ -134,8 +147,8 @@ final class PlayerController {
         Task { await engine.command("seek", max(0, seconds)) }
     }
 
-    func skipForward(_ delta: Double = 15) { seek(to: min(duration, position + delta)) }
-    func skipBackward(_ delta: Double = 15) { seek(to: max(0, position - delta)) }
+    func skipForward(_ delta: Double = 15) { seek(to: min(duration, livePosition() + delta)) }
+    func skipBackward(_ delta: Double = 15) { seek(to: max(0, livePosition() - delta)) }
 
     func toggleMute() {
         isMuted.toggle()
@@ -160,7 +173,7 @@ final class PlayerController {
 
     func previous() {
         // Matches every other music player: the first press restarts the track.
-        if position > 3 || index <= 0 {
+        if livePosition() > 3 || index <= 0 {
             seek(to: 0)
         } else {
             go(to: index - 1)
@@ -299,8 +312,8 @@ final class PlayerController {
     /// Moves the engine to the other profile (account ⇄ guest), keeping the queue and
     /// the place in the current song.
     func switchProfile(to profile: Session.Profile) {
-        if hasTrack { resumePoint = (position, isPlaying) }
-        Log.write("profile: → \(profile.rawValue), resume at \(Int(position))s playing=\(isPlaying)")
+        if hasTrack { resumePoint = (livePosition(), isPlaying) }
+        Log.write("profile: → \(profile.rawValue), resume at \(Int(livePosition()))s playing=\(isPlaying)")
         engine.switchProfile(to: profile)
     }
 

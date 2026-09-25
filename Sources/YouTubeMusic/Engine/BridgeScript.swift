@@ -18,7 +18,11 @@ enum BridgeScript {
   if (window.__ytm) { return; }
 
   const ORIGIN  = 'https://music.youtube.com';
+  // The player is checked this often, so a new state, track or ending is reported within
+  // half a second. The position itself is only sent this often while it is moving and a
+  // scrubber is on screen; otherwise every IDLE_MS, as a safety net.
   const POLL_MS = 500;
+  const IDLE_MS = 5000;
 
   const send = (type, payload) => {
     try {
@@ -145,6 +149,7 @@ enum BridgeScript {
     command(name, arg) {
       const p = player();
       if (!p) { return false; }
+      last = null;    // report the outcome on the next check, whatever it is
       try {
         switch (name) {
           case 'play':   p.playVideo();  return true;
@@ -195,26 +200,44 @@ enum BridgeScript {
       };
     },
 
-    navigate(url) { window.location.href = url; }
+    navigate(url) { window.location.href = url; },
+
+    // Whether a scrubber is on screen. Becoming watched reports at once, so the bar
+    // that just appeared starts from the real position.
+    setWatched(value) {
+      watched = !!value;
+      if (watched) { last = null; tick(); }
+    }
   };
 
   window.__ytm = api;
 
-  window.__ytmOnState = function () { send('state', snapshot()); };
+  // What was last reported, and when.
+  let last = null, lastAt = 0, watched = true;
+  const report = (type, s) => { last = s; lastAt = Date.now(); send(type, s); };
+
+  window.__ytmOnState = function () { report('state', snapshot()); };
   window.__ytmOnError = function (code) { send('error', { code: Number(code) || 0 }); };
 
-  // YouTube Music reinstalls its own Media Session handlers as it navigates, so we
-  // re-claim them on every tick rather than once at startup.
+  // YouTube Music installs its own Media Session handlers each time a track starts to load
+  // (and clears next / previous), so ours take their place as it sets them. `attach`
+  // re-claims them every few seconds as a safety net.
+  const remoteActions = new Map([
+    ['play',          () => send('remote', { action: 'play' })],
+    ['pause',         () => send('remote', { action: 'pause' })],
+    ['previoustrack', () => send('remote', { action: 'previous' })],
+    ['nexttrack',     () => send('remote', { action: 'next' })],
+    ['stop',          () => send('remote', { action: 'stop' })],
+    ['seekto',        (d) => send('remote', { action: 'seek', time: (d && d.seekTime) || 0 })]
+  ]);
+  const session = navigator.mediaSession;
+  const setHandler = (session && session.setActionHandler) ? session.setActionHandler.bind(session) : null;
+  if (setHandler) {
+    try { session.setActionHandler = (action, fn) => setHandler(action, remoteActions.get(action) || fn); } catch (e) {}
+  }
   function claimMediaKeys() {
-    const ms = navigator.mediaSession;
-    if (!ms || !ms.setActionHandler) { return; }
-    const bind = (action, fn) => { try { ms.setActionHandler(action, fn); } catch (e) {} };
-    bind('play',          () => send('remote', { action: 'play' }));
-    bind('pause',         () => send('remote', { action: 'pause' }));
-    bind('previoustrack', () => send('remote', { action: 'previous' }));
-    bind('nexttrack',     () => send('remote', { action: 'next' }));
-    bind('stop',          () => send('remote', { action: 'stop' }));
-    bind('seekto',        (d) => send('remote', { action: 'seek', time: (d && d.seekTime) || 0 }));
+    if (!setHandler) { return; }
+    remoteActions.forEach((fn, action) => { try { setHandler(action, fn); } catch (e) {} });
   }
 
   let bound = null;
@@ -234,9 +257,27 @@ enum BridgeScript {
     claimMediaKeys();
   }
 
-  setInterval(attach, 400);
-  setInterval(() => { const s = snapshot(); if (s.ok) { send('tick', s); } }, POLL_MS);
-  attach();
+  // Checks the player every POLL_MS; reports a change at once, the position when due.
+  function tick() {
+    const p = player();
+    if (p && p !== bound) { attach(); }
+    const s = snapshot();
+    if (!s.ok) { return; }
+    const now = Date.now();
+    const every = (s.state === 1 && watched) ? POLL_MS : IDLE_MS;
+    const changed = !last || s.videoId !== last.videoId || s.state !== last.state
+      || s.ad !== last.ad || s.muted !== last.muted || s.volume !== last.volume
+      || s.duration !== last.duration;
+    // A jump the page made by itself rather than through `command`.
+    const jumped = !!last
+      && Math.abs(s.time - (last.time + (last.state === 1 ? (now - lastAt) / 1000 : 0))) > 1.5;
+    if (changed || jumped || now - lastAt >= every - 50) { report('tick', s); }
+  }
+
+  // The player turns up a moment after the page: look for it often until then, and
+  // after that only as a safety net (the tick rebinds a replaced player).
+  (function watch() { attach(); setTimeout(watch, bound ? 3000 : 400); })();
+  setInterval(tick, POLL_MS);
   send('injected', { href: location.href, signedIn: api.signedIn() });
 })();
 """#
