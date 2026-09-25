@@ -43,7 +43,7 @@ kept apart and both can run at once:
 |---|---|---|
 | Built by | `./build.sh` / `./run.sh` | `./release.sh <version>` |
 | Bundle | `build/Music for YouTube Dev.app` | `/Applications/Music for YouTube.app` (+ `releases/<version>/`) |
-| Bundle ID | `dev.fringecore.ytmusic.dev` | `dev.fringecore.ytmusic` |
+| Bundle ID | `dev.emonsaqib.ytmusic.dev` | `dev.emonsaqib.ytmusic` |
 | Logs | `~/Library/Logs/MusicForYouTube-Dev/` | `~/Library/Logs/MusicForYouTube/` |
 | Looks | blue icon (recoloured copy made by `build.sh`), **DEV** badge on Home | red icon, no badge |
 
@@ -169,7 +169,7 @@ sidebar playlists, restore defaults), Appearance (system/light/dark, 9 accents �
 is now dynamic —, full-screen background moving/still/solid, open with lyrics, lyrics
 size), Playback (radio autoplay, global shortcuts on/off), Account (profile switcher, clear
 guest data), About. Remembers the last pane (`settings.tab`), which is also how to
-screenshot a given pane: `defaults write dev.fringecore.ytmusic.dev settings.tab appearance`.
+screenshot a given pane: `defaults write dev.emonsaqib.ytmusic.dev settings.tab appearance`.
 
 **Menu bar panel** — `UI/MenuBarPlayer.swift`: Control Center-style card over blurred
 artwork, scrubber, transport, volume, 3-row Up Next, footer with profile menu / open app /

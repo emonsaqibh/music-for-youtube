@@ -2,6 +2,14 @@ import AppKit
 import SwiftUI
 
 @main
+enum Launch {
+    @MainActor static func main() {
+        // Before SwiftUI builds the app: its property initializers already read settings.
+        LegacyMigration.run()
+        YouTubeMusicApp.main()
+    }
+}
+
 struct YouTubeMusicApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     @Environment(\.openWindow) private var openWindow

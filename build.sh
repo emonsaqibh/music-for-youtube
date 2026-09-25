@@ -12,7 +12,7 @@ set -euo pipefail
 cd "$(dirname "$0")"
 
 FLAVOR="${FLAVOR:-dev}"
-BASE_ID="dev.fringecore.ytmusic"
+BASE_ID="dev.emonsaqib.ytmusic"
 case "$FLAVOR" in
     dev)
         # Optimized by default: an unoptimized SwiftUI build is noticeably laggier than

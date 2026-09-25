@@ -4,7 +4,7 @@
 <dict>
     <key>CFBundleDevelopmentRegion</key>          <string>en</string>
     <key>CFBundleExecutable</key>                 <string>YouTubeMusic</string>
-    <key>CFBundleIdentifier</key>                 <string>dev.fringecore.ytmusic</string>
+    <key>CFBundleIdentifier</key>                 <string>dev.emonsaqib.ytmusic</string>
     <key>CFBundleInfoDictionaryVersion</key>      <string>6.0</string>
     <key>CFBundleName</key>                       <string>Music for YouTube</string>
     <key>CFBundleDisplayName</key>                <string>Music for YouTube</string>

@@ -7,7 +7,7 @@ import Foundation
 /// most useful debugging tool there is.
 enum Log {
     nonisolated(unsafe) private static var handle: FileHandle?
-    private static let queue = DispatchQueue(label: "dev.fringecore.ytmusic.log")
+    private static let queue = DispatchQueue(label: "dev.emonsaqib.ytmusic.log")
 
     static let fileURL: URL = {
         let dir = FileManager.default.homeDirectoryForCurrentUser
