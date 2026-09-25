@@ -358,6 +358,10 @@ enum Catalog {
         // Lyrics are not on the track: they are a tab of the watch page, whose browseId
         // has to be looked up first. The tab title is localised, so match the page type.
         let next = try await engine.innertube("next", ["videoId": videoId, "isAudioOnly": true])
+        // The same answer says whether the song is liked, so the Like button needn't ask.
+        if let liked = Parse.isLiked(videoId: videoId, in: next) {
+            await LikeStore.shared.learn(liked, for: videoId)
+        }
         let endpoint = next.all("tabRenderer")
             .compactMap { $0[path: "endpoint.browseEndpoint"].exists ? $0[path: "endpoint.browseEndpoint"] : nil }
             .first {

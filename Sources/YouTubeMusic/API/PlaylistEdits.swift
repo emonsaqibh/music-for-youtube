@@ -122,6 +122,21 @@ extension Catalog {
                                        changesAccount: true)
     }
 
+    /// Likes a song (it joins Liked Music) or takes the like back — the thumbs-up in
+    /// YouTube Music's player bar.
+    static func setLiked(_ liked: Bool, videoId: String) async throws {
+        _ = try await engine.innertube(liked ? "like/like" : "like/removelike",
+                                       ["target": ["videoId": videoId]],
+                                       changesAccount: true)
+    }
+
+    /// Whether the account likes a song, from `next`: the request YouTube Music's web app
+    /// makes for every song it plays. Nil when the answer doesn't say (signed out).
+    static func isLiked(videoId: String) async throws -> Bool? {
+        Parse.isLiked(videoId: videoId,
+                      in: try await engine.innertube("next", ["videoId": videoId, "isAudioOnly": true]))
+    }
+
     static func deletePlaylist(_ playlistId: String) async throws {
         _ = try await engine.innertube("playlist/delete", ["playlistId": bare(playlistId)],
                                        changesAccount: true)

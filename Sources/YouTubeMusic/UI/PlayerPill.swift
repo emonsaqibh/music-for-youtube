@@ -13,7 +13,9 @@ struct PlayerPill: View {
     @State private var width: CGFloat = 700
 
     /// Below these widths the secondary controls give way so the title stays readable —
-    /// Music.app drops shuffle and repeat first when its window narrows.
+    /// Music.app drops shuffle and repeat first when its window narrows. Like goes before
+    /// them.
+    private var narrow: Bool { width < 630 }
     private var compact: Bool { width < 580 }
     private var tight: Bool { width < 470 }
 
@@ -37,6 +39,7 @@ struct PlayerPill: View {
         .padding(.horizontal, 18)
         // While the full-screen player is up, it *is* the pill — see `PillMorph`.
         .opacity(router.showFullScreenPlayer && !isMorphing ? 0 : 1)
+        .animation(.easeInOut(duration: 0.2), value: narrow)
         .animation(.easeInOut(duration: 0.2), value: compact)
         .animation(.easeInOut(duration: 0.2), value: tight)
     }
@@ -72,6 +75,10 @@ struct PlayerPill: View {
 
     private var accessories: some View {
         HStack(spacing: 2) {
+            if !narrow {
+                LikeButton(size: 13)
+                    .transition(.opacity.combined(with: .scale(scale: 0.8)))
+            }
             TransportButton(symbol: "quote.bubble", size: 13,
                             isEnabled: player.hasTrack, isActive: router.panel == .lyrics) {
                 router.toggle(.lyrics)
