@@ -71,7 +71,8 @@ struct MenuBarPlayer: View {
                     }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
-                // The trailing edge of this row is where a Like button belongs.
+                // Plain, like the tile's other small buttons: it sits on the tile's glass.
+                LikeButton(size: 14)
             }
 
             VStack(spacing: 3) {
