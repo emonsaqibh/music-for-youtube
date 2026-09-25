@@ -135,9 +135,38 @@ enum Catalog {
     // MARK: Search
 
     static func search(_ query: String, filter: SearchFilter = .all) async throws -> [Shelf] {
+        try await searchPage(query, filter: filter).shelves
+    }
+
+    /// A search's first page, and the token for the next. Only a filtered tab (Songs,
+    /// Albums…) goes on: it is one result list that YouTube pages 20 at a time. The All
+    /// tab is a fixed set of sections.
+    static func searchPage(_ query: String, filter: SearchFilter) async throws -> (shelves: [Shelf], continuation: String?) {
         var body: [String: Any] = ["query": query]
         if let params = filter.params { body["params"] = params }
-        return Parse.searchResults(in: try await engine.innertube("search", body))
+        let json = try await engine.innertube("search", body)
+        let token = filter == .all ? nil : json.first("musicShelfRenderer").flatMap(searchContinuation)
+        return (Parse.searchResults(in: json), token)
+    }
+
+    /// The next page of a filtered search. It comes back as `musicShelfContinuation`,
+    /// holding the same rows as the first page and the token after it.
+    static func searchMore(_ token: String) async throws -> (tracks: [Track], cards: [Card], continuation: String?) {
+        let json = try await engine.innertube("search", ["continuation": token])
+        var tracks: [Track] = []
+        var cards: [Card] = []
+        for row in json.all("musicResponsiveListItemRenderer") {
+            if let track = Parse.track(row) { tracks.append(track) }
+            else if let card = Parse.cardFromRow(row) { cards.append(card) }
+        }
+        return (tracks, cards, searchContinuation(in: json.first("musicShelfContinuation") ?? json))
+    }
+
+    /// A result list's next-page token: `continuations[].nextContinuationData`, or on newer
+    /// responses a `continuationItemRenderer` at the end of its rows.
+    private static func searchContinuation(in shelf: JSON) -> String? {
+        shelf["continuations"].first("nextContinuationData")?["continuation"].stringValue
+            ?? shelf.first("continuationItemRenderer")?.first("continuationCommand")?["token"].stringValue
     }
 
     static func suggestions(_ query: String) async throws -> [String] {
