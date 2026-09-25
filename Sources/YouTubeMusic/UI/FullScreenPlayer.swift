@@ -126,6 +126,8 @@ struct FullScreenPlayer: View {
                 }
             }
             Spacer(minLength: 0)
+            LikeButton(size: 15)
+                .glassEffect(.regular.interactive(), in: Circle())
             if let track = player.current {
                 Menu {
                     if let id = track.artists.first?.id {

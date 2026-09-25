@@ -270,6 +270,10 @@ final class PlayerController {
         guard queue.count == 1, queue.first?.id == track.id else { return }
         do {
             let radio = try await Catalog.upNext(videoId: track.id)
+            // The radio opens with the song itself, which says whether it is liked.
+            if let liked = radio.first(where: { $0.id == track.id })?.isLiked {
+                LikeStore.shared.learn(liked, for: track.id)
+            }
             let rest = radio.filter { $0.id != track.id }
             guard !rest.isEmpty else {
                 Log.write("radio: nothing returned for \(track.id)")

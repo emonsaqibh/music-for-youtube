@@ -102,6 +102,7 @@ enum Parse {
         track.setVideoId = r[path: "playlistItemData.playlistSetVideoId"].stringValue
         track.isRemovable = r["menu"].all("playlistEditEndpoint")
             .contains { $0["actions"].arrayValue.contains { $0["action"].stringValue == "ACTION_REMOVE_VIDEO" } }
+        track.isLiked = r["menu"].first("likeButtonRenderer").flatMap(isLiked)
         track.artwork = artwork(r, size: 240)
         track.isExplicit = isExplicit(r["badges"])
         track.rank = rank(r)
@@ -154,6 +155,7 @@ enum Parse {
         track.artwork = artwork(r, size: 240)
         track.seconds = Format.parseDuration(r["lengthText"].text)
         track.setVideoId = r["playlistSetVideoId"].stringValue
+        track.isLiked = r["menu"].first("likeButtonRenderer").flatMap(isLiked)
 
         let byline = r["longBylineText"].exists ? r["longBylineText"] : r["shortBylineText"]
         for run in byline["runs"].arrayValue {
@@ -169,6 +171,22 @@ enum Parse {
             track.artists = [ArtistRef(id: nil, name: first)]
         }
         return track
+    }
+
+    /// A song's like, from its `likeButtonRenderer`. Nil unless the button can like: signed
+    /// out it only opens a sign-in prompt, and always says INDIFFERENT.
+    static func isLiked(_ button: JSON) -> Bool? {
+        guard button.first("likeEndpoint") != nil,
+              let status = button["likeStatus"].stringValue else { return nil }
+        return status == "LIKE"
+    }
+
+    /// One song's like anywhere in a response. `next` carries it for the song itself (the
+    /// player overlay's button) and for each queue row.
+    static func isLiked(videoId: String, in json: JSON) -> Bool? {
+        json.all("likeButtonRenderer")
+            .first { $0[path: "target.videoId"].stringValue == videoId }
+            .flatMap(isLiked)
     }
 
     // MARK: - Cards

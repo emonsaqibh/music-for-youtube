@@ -25,6 +25,9 @@ struct Track: Identifiable, Hashable, Sendable, Codable {
     /// YouTube offers "Remove from playlist" on this row (the account's own playlists).
     /// Optional so pages remembered on disk before it existed still decode.
     var isRemovable: Bool?
+    /// Liked by the account when the row was fetched. Nil when the response didn't say
+    /// (signed out, or a tile rather than a row).
+    var isLiked: Bool?
     /// Position in a chart.
     var rank: ChartRank?
 

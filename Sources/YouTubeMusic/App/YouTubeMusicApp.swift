@@ -176,6 +176,13 @@ struct PlaybackCommands: Commands {
 
             Divider()
 
+            Button(player.current.flatMap(LikeStore.shared.isLiked) == true ? "Unlike" : "Like") {
+                if let track = player.current { LikeStore.shared.toggle(track) }
+            }
+            .disabled(!player.hasTrack || !LikeStore.shared.canLike)
+
+            Divider()
+
             Button("Shuffle") { player.toggleShuffle() }
                 .keyboardShortcut("s", modifiers: [.command, .shift])
             Button("Repeat") { player.cycleRepeat() }
