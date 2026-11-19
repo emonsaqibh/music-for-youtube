@@ -55,7 +55,7 @@ struct MiniPlayerView: View {
     /// The small square: artwork top-left, title and artist, then previous / play / next.
     private var square: some View {
         VStack(alignment: .leading, spacing: 0) {
-            Artwork(url: player.current?.artwork, cornerRadius: 6)
+            Artwork(url: player.current?.artwork, cornerRadius: 6, crossfades: true)
                 .frame(width: 34, height: 34)
                 .shadow(color: .black.opacity(0.3), radius: 4, y: 2)
 
@@ -64,10 +64,12 @@ struct MiniPlayerView: View {
             Text(player.current?.title ?? "Not Playing")
                 .font(.system(size: 12, weight: .bold))
                 .lineLimit(1)
+                .songChangeFade(player.current?.id)
             Text(player.current?.artistLine ?? "Music for YouTube")
                 .font(.system(size: 10.5))
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
+                .songChangeFade(player.current?.id)
 
             Spacer(minLength: 2)
 
@@ -91,7 +93,7 @@ struct MiniPlayerView: View {
     /// The wide bar: artwork beside title, scrubber and transport.
     private var wide: some View {
         HStack(spacing: 14) {
-            Artwork(url: player.current?.artwork, cornerRadius: 10)
+            Artwork(url: player.current?.artwork, cornerRadius: 10, crossfades: true)
                 .frame(width: 86, height: 86)
                 .shadow(color: .black.opacity(0.3), radius: 8, y: 4)
 
@@ -106,6 +108,7 @@ struct MiniPlayerView: View {
                             .foregroundStyle(.secondary)
                             .lineLimit(1)
                     }
+                    .songChangeFade(player.current?.id)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     LikeButton(size: 12)
                 }

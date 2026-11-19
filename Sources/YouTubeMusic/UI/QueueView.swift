@@ -49,7 +49,7 @@ struct QueueView: View {
 
     private func nowPlaying(_ track: Track) -> some View {
         HStack(spacing: 11) {
-            Artwork(url: track.artwork, cornerRadius: 6)
+            Artwork(url: track.artwork, cornerRadius: 6, crossfades: true)
                 .frame(width: 48, height: 48)
                 .shadow(color: .black.opacity(0.2), radius: 4, y: 2)
             VStack(alignment: .leading, spacing: 2) {
@@ -64,6 +64,7 @@ struct QueueView: View {
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
             }
+            .songChangeFade(track.id)
             Spacer(minLength: 0)
             if player.isPlaying { PlayingIndicator() }
         }

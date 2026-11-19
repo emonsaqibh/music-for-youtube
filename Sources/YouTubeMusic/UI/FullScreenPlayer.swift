@@ -87,7 +87,7 @@ struct FullScreenPlayer: View {
         VStack(alignment: .leading, spacing: 0) {
             Spacer(minLength: 0)
 
-            Artwork(url: player.current?.artwork, cornerRadius: 12)
+            Artwork(url: player.current?.artwork, cornerRadius: 12, crossfades: true)
                 .frame(width: artSize, height: artSize)
                 .shadow(color: .black.opacity(0.45), radius: 30, y: 14)
                 .scaleEffect(player.isPlaying || !player.hasTrack ? 1 : 0.9)
@@ -125,6 +125,7 @@ struct FullScreenPlayer: View {
                         .lineLimit(1)
                 }
             }
+            .songChangeFade(player.current?.id)
             Spacer(minLength: 0)
             LikeButton(size: 15)
                 .glassEffect(.regular.interactive(), in: Circle())

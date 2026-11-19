@@ -195,6 +195,8 @@ enum Motion {
     /// The pill stretching into the full-screen player and back: slower than the rest and
     /// a little underdamped, so the shape overshoots and settles like the Dynamic Island.
     static let expand = Animation.spring(response: 0.52, dampingFraction: 0.8)
+    /// One song's artwork, title or colours dissolving into the next's.
+    static let crossfade = Animation.easeInOut(duration: 0.45)
 }
 
 /// Squeezes a button while it's held and springs it back on release.
@@ -237,4 +239,10 @@ private struct AppearIn: ViewModifier {
 
 extension View {
     func appearIn(order: Int) -> some View { modifier(AppearIn(order: order)) }
+
+    /// Text that names the playing song dissolves into the next song's rather than
+    /// jumping. Scoped to `song`, so nothing else this view does is animated.
+    func songChangeFade(_ song: String?) -> some View {
+        contentTransition(.opacity).animation(Motion.crossfade, value: song)
+    }
 }
