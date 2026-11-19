@@ -299,7 +299,7 @@ struct LyricsPanel: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             HStack(spacing: 10) {
-                Artwork(url: player.current?.artwork, cornerRadius: 5)
+                Artwork(url: player.current?.artwork, cornerRadius: 5, crossfades: true)
                     .frame(width: 40, height: 40)
                 VStack(alignment: .leading, spacing: 1) {
                     Text(player.current?.title ?? "Lyrics")

@@ -28,8 +28,12 @@ final class PlayerController {
 
     // MARK: Observable state
 
-    private(set) var queue: [Track] = []
-    private(set) var index = -1
+    private(set) var queue: [Track] = [] {
+        didSet { prefetchArtwork() }
+    }
+    private(set) var index = -1 {
+        didSet { if index != oldValue { prefetchArtwork() } }
+    }
     private(set) var queueSource: String?
 
     private(set) var isPlaying = false
@@ -61,6 +65,16 @@ final class PlayerController {
     }
 
     private(set) var isMuted = false
+
+    /// Decodes the playing and next songs' covers ahead of time, so the pill, mini player
+    /// and menu bar show the new artwork on the song's first frame instead of a placeholder.
+    private func prefetchArtwork() {
+        for offset in 0...1 {
+            let i = index + offset
+            guard queue.indices.contains(i), let url = queue[i].artwork else { continue }
+            ImageCache.shared.prefetch(url, pixels: 256)
+        }
+    }
 
     // MARK: Derived
 

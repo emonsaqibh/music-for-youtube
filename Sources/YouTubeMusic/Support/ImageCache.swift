@@ -94,6 +94,13 @@ final class ImageCache {
         return image
     }
 
+    /// Downloads and decodes artwork before it's on screen. Skipped when a copy that size
+    /// is already in memory; concurrent requests share one download and decode.
+    func prefetch(_ url: URL, pixels: Int) {
+        guard cached(url, atLeast: pixels) == nil else { return }
+        Task { _ = await image(url, pixels: pixels) }
+    }
+
     /// The encoded bytes, shared by concurrent requests for the same URL. Repeat visits
     /// come from the disk cache.
     private func data(_ url: URL) async -> Data? {
@@ -305,9 +312,15 @@ struct Artwork: View {
     var cornerRadius: CGFloat
     var circular: Bool
     var symbol: String
+    /// For artwork that follows the playing song: a new URL keeps the old cover on screen
+    /// until the new one is decoded, then cross-fades to it — never a placeholder between.
+    var crossfades: Bool
 
     @Environment(\.displayScale) private var displayScale
     @State private var image: NSImage?
+    /// The URL `image` was drawn from: the bitmap's identity, so a new cover fades in over
+    /// the old one while a sharper copy of the same cover swaps in place.
+    @State private var shownURL: URL?
     /// The decode size this view needs, from its laid-out size. 0 until measured.
     @State private var pixels = 0
     /// What `image` currently is, so a view that has what it needs doesn't reload.
@@ -323,12 +336,16 @@ struct Artwork: View {
         let pixels: Int
     }
 
-    init(url: URL?, cornerRadius: CGFloat = 8, circular: Bool = false, symbol: String = "music.note") {
+    init(url: URL?, cornerRadius: CGFloat = 8, circular: Bool = false, symbol: String = "music.note",
+         crossfades: Bool = false) {
         self.url = url
         self.cornerRadius = cornerRadius
         self.circular = circular
         self.symbol = symbol
-        _image = State(initialValue: url.flatMap { ImageCache.shared.cached($0) })
+        self.crossfades = crossfades
+        let initial = url.flatMap { ImageCache.shared.cached($0) }
+        _image = State(initialValue: initial)
+        _shownURL = State(initialValue: initial == nil ? nil : url)
     }
 
     private var shape: AnyShape {
@@ -343,6 +360,7 @@ struct Artwork: View {
                     Image(nsImage: image)
                         .resizable()
                         .aspectRatio(contentMode: .fill)
+                        .id(shownURL)
                         .transition(.opacity)
                 } else {
                     Image(systemName: symbol)
@@ -361,7 +379,7 @@ struct Artwork: View {
 
     private func load() async {
         guard let url else {
-            image = nil
+            show(nil, from: nil)
             loaded = nil
             return
         }
@@ -369,23 +387,39 @@ struct Artwork: View {
 
         let cache = ImageCache.shared
         if let hit = cache.cached(url, atLeast: pixels) {
-            image = hit
+            show(hit, from: url)
             loaded = Loaded(url: url, pixels: pixels)
             return
         }
-        // A new URL: show a smaller copy while the right size decodes, else the placeholder.
+        // A new URL: show a smaller copy while the right size decodes, else the placeholder
+        // (or, when cross-fading, the previous cover).
         if loaded?.url != url {
-            image = cache.cached(url)
+            if let smaller = cache.cached(url) {
+                show(smaller, from: url)
+            } else if !crossfades {
+                show(nil, from: nil)
+            }
             loaded = nil
         }
         guard pixels > 0 else { return }
 
         guard let fetched = await cache.image(url, pixels: pixels), !Task.isCancelled else { return }
-        if image == nil {
-            withAnimation(.easeOut(duration: 0.22)) { image = fetched }
-        } else {
-            image = fetched
-        }
+        show(fetched, from: url)
         loaded = Loaded(url: url, pixels: pixels)
+    }
+
+    /// Puts a bitmap on screen: a different cover (or the first one) fades in, a sharper
+    /// copy of the one showing replaces it without a fade.
+    private func show(_ next: NSImage?, from source: URL?) {
+        guard next !== image || source != shownURL else { return }
+        if source == shownURL || (image == nil && next == nil) {
+            image = next
+            shownURL = source
+        } else {
+            withAnimation(crossfades ? Motion.crossfade : .easeOut(duration: 0.22)) {
+                image = next
+                shownURL = source
+            }
+        }
     }
 }

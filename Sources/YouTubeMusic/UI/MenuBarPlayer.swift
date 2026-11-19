@@ -50,7 +50,7 @@ struct MenuBarPlayer: View {
     private var nowPlaying: some View {
         VStack(spacing: 14) {
             HStack(spacing: 12) {
-                Artwork(url: player.current?.artwork, cornerRadius: 10)
+                Artwork(url: player.current?.artwork, cornerRadius: 10, crossfades: true)
                     .frame(width: 68, height: 68)
                     .shadow(color: .black.opacity(0.3), radius: 8, y: 4)
                     .scaleEffect(player.isPlaying ? 1 : 0.92)
@@ -76,6 +76,7 @@ struct MenuBarPlayer: View {
                             .lineLimit(1)
                     }
                 }
+                .songChangeFade(player.current?.id)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 // Plain, like the tile's other small buttons: it sits on the tile's glass.
                 LikeButton(size: 14)
